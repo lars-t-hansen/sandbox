@@ -1,1 +1,1 @@
-Simple command line utilities and libraries, in various languages.
+Simple command line utilities and libraries and experiments, in various languages.
