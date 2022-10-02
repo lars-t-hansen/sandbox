@@ -1,4 +1,22 @@
-// The L0 unifier from the book, but using Go's heap
+// term ::= structure | variable
+// structure ::= functor term*
+// functor ::= symbol
+// rule ::= head body?
+// head ::= structure
+// body ::= structure+
+// query ::= structure
+// ruleset ::= rule*
+
+// To apply a query Q = (f t_1 .. t_n) to a ruleset is to
+//  - select from the ruleset the rules R whose functor and arity match f and n
+//  - if R is empty then fail
+//  - for each rule S in R in order
+//    - create a copy C of S with fresh variables where S has variables
+//    - try to unify the head of C with Q
+//    - if unification succeeds,
+//       - for each structure B in the body of S in order,
+//         - apply the query B to the ruleset
+//       - if any application fails, then fail, otherwise succeed.
 
 package main
 
@@ -14,25 +32,21 @@ type symbol *string
 // Global state for evaluation
 
 type store struct {
+	// Interned constants.
 	symbols map[string]symbol
-	varId   int
-	vars    []*variable
+
+	// This is probably redundant.
+	varId int
+
+	// Database of rules.  This is indexed by functor and arity of the head.
+	rules map[symbol]map[int][]*rule
 }
 
 func newStore() *store {
 	return &store{
 		symbols: make(map[string]symbol),
 		varId:   0,
-		vars:    []*variable{},
-	}
-}
-
-func (st *store) toString(b *strings.Builder) {
-	for _, v := range st.vars {
-		b.WriteString(*v.name)
-		b.WriteString(" = ")
-		v.toString(b)
-		b.WriteRune('\n')
+		rules:   make(map[symbol]map[int][]*rule),
 	}
 }
 
@@ -49,6 +63,36 @@ func (st *store) newVarId() int {
 	n := st.varId
 	st.varId++
 	return n
+}
+
+func (st *store) assert(r *rule) {
+	functorMap, ok := st.rules[r.head.functor]
+	if !ok {
+		functorMap = make(map[int][]*rule)
+		st.rules[r.head.functor] = functorMap
+	}
+	arity := len(r.head.subterms)
+	aritySlice, ok := functorMap[arity]
+	if !ok {
+		aritySlice = make([]*rule, 0, 4)
+	}
+	functorMap[arity] = append(aritySlice, r)
+}
+
+func (st *store) lookup(functor symbol, arity int) []*rule {
+	functorMap, ok := st.rules[functor]
+	if !ok {
+		return []*rule{}
+	}
+	aritySlice, ok := functorMap[arity]
+	if !ok {
+		return []*rule{}
+	}
+	return aritySlice
+}
+
+func (st *store) retract(functor symbol, arity int) {
+	panic("NYI")
 }
 
 // Terms are structures or variables.  A zero-arity structure is also known
@@ -123,7 +167,6 @@ type variable struct {
 func (st *store) newVar(name string) *variable {
 	v := &variable{name: st.intern(name), id: st.newVarId()}
 	v.uvar = v
-	st.vars = append(st.vars, v)
 	return v
 }
 
@@ -137,7 +180,7 @@ func (v *variable) toString(b *strings.Builder) {
 	}
 }
 
-func (v *variable) resolve() term {
+func (v *variable) resolveVar() term {
 	for v.uvar != nil && v.uvar != v {
 		next := v.uvar
 		if next.uvar == nil {
@@ -153,12 +196,48 @@ func (v *variable) resolve() term {
 	return v
 }
 
+type query struct {
+	st *store
+
+	// These are variables that are free in the query
+	vars []*variable
+}
+
+func newQuery(st *store) *query {
+	return &query{st: st, vars: []*variable{}}
+}
+
+func (q *query) toString(b *strings.Builder) {
+	for _, v := range q.vars {
+		b.WriteString(*v.name)
+		b.WriteString(" = ")
+		v.toString(b)
+		b.WriteRune('\n')
+	}
+}
+
+func (q *query) newVar(name string) *variable {
+	v := &variable{name: q.st.intern(name), id: q.st.newVarId()}
+	v.uvar = v
+	q.vars = append(q.vars, v)
+	return v
+}
+
+type rule struct {
+	head *structure
+	body []*structure
+}
+
+func newFact(head *structure) *rule {
+	return &rule{head: head, body: []*structure{}}
+}
+
 func unify(lhs term, rhs term) bool {
 	if v1, ok := lhs.(*variable); ok {
-		lhs = v1.resolve()
+		lhs = v1.resolveVar()
 	}
 	if v2, ok := rhs.(*variable); ok {
-		rhs = v2.resolve()
+		rhs = v2.resolveVar()
 	}
 	if v1, ok := lhs.(*variable); ok {
 		if v2, ok := rhs.(*variable); ok {
@@ -191,31 +270,37 @@ func unify(lhs term, rhs term) bool {
 	return true
 }
 
+func (q *query) ask(s *structure) bool {
+	rules := q.st.lookup(s.functor, len(s.subterms))
+	for _, r := range rules {
+		if unify(r.head, s) {
+			return true
+		}
+		// Unbind any query variables bound by the unification
+		for _, v := range q.vars {
+			v.val = nil
+			v.uvar = v
+		}
+	}
+	return false
+}
+
 func main() {
 	var buf strings.Builder
-	c := newStore()
-	A := c.newVar("A")
-	B := c.newVar("B")
-	if !unify(A, c.newStruct("f", c.newConst("false"), B)) {
-		panic("First test")
+	st := newStore()
+	st.assert(newFact(st.newStruct("father", st.newConst("haakon"), st.newConst("olav"))))
+	st.assert(newFact(st.newStruct("father", st.newConst("olav"), st.newConst("harald"))))
+	st.assert(newFact(st.newStruct("father", st.newConst("harald"), st.newConst("håkon magnus"))))
+	st.assert(newFact(st.newStruct("father", st.newConst("håkon magnus"), st.newConst("ingrid alexandra"))))
+	q := newQuery(st)
+	X := q.newVar("X")
+	found := q.ask(st.newStruct("father", X, st.newConst("harald")))
+	if !found {
+		os.Stdout.WriteString("no\n")
+	} else if len(q.vars) == 0 {
+		os.Stdout.WriteString("yes\n")
+	} else {
+		q.toString(&buf)
+		os.Stdout.WriteString(buf.String())
 	}
-	if !unify(B, c.newConst("true")) {
-		panic("Second test")
-	}
-	D := c.newVar("D")
-	if !unify(A, c.newStruct("f", D, c.newConst("true"))) {
-		panic("Third test")
-	}
-	E := c.newVar("E")
-	F := c.newVar("F")
-	G := c.newVar("G")
-	H := c.newVar("H")
-	if !unify(c.newStruct("f", E, F), c.newStruct("f", G, H)) {
-		panic("Fourth test")
-	}
-	if !unify(c.newStruct("f", c.newConst("hi"), c.newConst("ho")), E) {
-		panic("Fifth test")
-	}
-	c.toString(&buf)
-	os.Stdout.WriteString(buf.String())
 }
