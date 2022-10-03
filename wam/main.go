@@ -21,41 +21,58 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
 
-// Symbols are just strings with object identity
+// Atoms are just strings with object identity
 
-type symbol *string
+type atom struct {
+	name string
+}
+
+func (a *atom) toString(b *strings.Builder) {
+	b.WriteString(a.name)
+}
+
+// Numbers are numbers, for now just i64
+
+type number struct {
+	value int64
+}
+
+func (a *number) toString(b *strings.Builder) {
+	b.WriteString(fmt.Sprint(a.value))
+}
 
 // Global state for evaluation
 
 type store struct {
 	// Interned constants.
-	symbols map[string]symbol
+	atoms map[string]*atom
 
 	// This is probably redundant.
 	varId int
 
 	// Database of rules.  This is indexed by functor and arity of the head.
-	rules map[symbol]map[int][]*rule
+	rules map[*atom]map[int][]*rule
 }
 
 func newStore() *store {
 	return &store{
-		symbols: make(map[string]symbol),
-		varId:   0,
-		rules:   make(map[symbol]map[int][]*rule),
+		atoms: make(map[string]*atom),
+		varId: 0,
+		rules: make(map[*atom]map[int][]*rule),
 	}
 }
 
-func (st *store) intern(name string) symbol {
-	if v, ok := st.symbols[name]; ok {
+func (st *store) intern(name string) *atom {
+	if v, ok := st.atoms[name]; ok {
 		return v
 	}
-	v := &name
-	st.symbols[name] = v
+	v := &atom{name: name}
+	st.atoms[name] = v
 	return v
 }
 
@@ -79,7 +96,7 @@ func (st *store) assert(r *rule) {
 	functorMap[arity] = append(aritySlice, r)
 }
 
-func (st *store) lookup(functor symbol, arity int) []*rule {
+func (st *store) lookup(functor *atom, arity int) []*rule {
 	functorMap, ok := st.rules[functor]
 	if !ok {
 		return []*rule{}
@@ -91,16 +108,15 @@ func (st *store) lookup(functor symbol, arity int) []*rule {
 	return aritySlice
 }
 
-func (st *store) retract(functor symbol, arity int) {
+func (st *store) retract(functor atom, arity int) {
 	panic("NYI")
 }
 
-// Terms are structures or variables.  A zero-arity structure is also known
-// as a constant.
-//
 // type term union {
-//   structure
-//   variable
+//   *structure
+//   *variable
+//   *atom
+//   *number
 // }
 
 type term interface {
@@ -108,7 +124,7 @@ type term interface {
 }
 
 type structure struct {
-	functor  symbol
+	functor  *atom
 	subterms []term
 }
 
@@ -116,12 +132,12 @@ func (st *store) newStruct(name string, args ...term) *structure {
 	return &structure{functor: st.intern(name), subterms: args}
 }
 
-func (st *store) newConst(name string) *structure {
-	return st.newStruct(name)
+func (st *store) atom(name string) *atom {
+	return st.intern(name)
 }
 
 func (v *structure) toString(b *strings.Builder) {
-	b.WriteString(*v.functor)
+	v.functor.toString(b)
 	if len(v.subterms) > 0 {
 		b.WriteRune('(')
 		for i, a := range v.subterms {
@@ -136,7 +152,7 @@ func (v *structure) toString(b *strings.Builder) {
 
 type variable struct {
 	// Print name.
-	name symbol
+	name *atom
 
 	// The `id` of a variable is used during var-var unification to
 	// make the higher-IDd variable forward to the lower-IDd
@@ -161,7 +177,7 @@ type variable struct {
 	//
 	// - non-nil for a concrete value
 	// - nil in every other case
-	val *structure
+	val term
 }
 
 func (st *store) newVar(name string) *variable {
@@ -176,7 +192,7 @@ func (v *variable) toString(b *strings.Builder) {
 	} else if v.uvar != v {
 		v.uvar.toString(b)
 	} else {
-		b.WriteString(*v.name)
+		v.name.toString(b)
 	}
 }
 
@@ -209,7 +225,7 @@ func newQuery(st *store) *query {
 
 func (q *query) toString(b *strings.Builder) {
 	for _, v := range q.vars {
-		b.WriteString(*v.name)
+		v.name.toString(b)
 		b.WriteString(" = ")
 		v.toString(b)
 		b.WriteRune('\n')
@@ -249,25 +265,42 @@ func unify(lhs term, rhs term) bool {
 			return true
 		}
 		v1.uvar = nil
-		v1.val = rhs.(*structure)
+		v1.val = rhs
 		return true
 	}
 	if v2, ok := rhs.(*variable); ok {
 		v2.uvar = nil
-		v2.val = lhs.(*structure)
+		v2.val = lhs
 		return true
 	}
-	s1 := lhs.(*structure)
-	s2 := rhs.(*structure)
-	if s1.functor != s2.functor || len(s1.subterms) != len(s2.subterms) {
+	if s1, ok := lhs.(*structure); ok {
+		if s2, ok := rhs.(*structure); ok {
+			if s1.functor != s2.functor || len(s1.subterms) != len(s2.subterms) {
+				return false
+			}
+			for i := 0; i < len(s1.subterms); i++ {
+				if !unify(s1.subterms[i], s2.subterms[i]) {
+					return false
+				}
+			}
+			return true
+		}
 		return false
 	}
-	for i := 0; i < len(s1.subterms); i++ {
-		if !unify(s1.subterms[i], s2.subterms[i]) {
-			return false
+	if a1, ok := lhs.(*atom); ok {
+		if a2, ok := rhs.(*atom); ok {
+			return a1 == a2
 		}
+		return false
 	}
-	return true
+	if n1, ok := lhs.(*number); ok {
+		if n2, ok := rhs.(*number); ok {
+			return n1.value == n2.value
+		}
+		return false
+	}
+	// There will be a case for numbers too
+	return false
 }
 
 func (q *query) ask(s *structure) bool {
@@ -288,13 +321,13 @@ func (q *query) ask(s *structure) bool {
 func main() {
 	var buf strings.Builder
 	st := newStore()
-	st.assert(newFact(st.newStruct("father", st.newConst("haakon"), st.newConst("olav"))))
-	st.assert(newFact(st.newStruct("father", st.newConst("olav"), st.newConst("harald"))))
-	st.assert(newFact(st.newStruct("father", st.newConst("harald"), st.newConst("håkon magnus"))))
-	st.assert(newFact(st.newStruct("father", st.newConst("håkon magnus"), st.newConst("ingrid alexandra"))))
+	st.assert(newFact(st.newStruct("father", st.atom("haakon"), st.atom("olav"))))
+	st.assert(newFact(st.newStruct("father", st.atom("olav"), st.atom("harald"))))
+	st.assert(newFact(st.newStruct("father", st.atom("harald"), st.atom("håkon magnus"))))
+	st.assert(newFact(st.newStruct("father", st.atom("håkon magnus"), st.atom("ingrid alexandra"))))
 	q := newQuery(st)
 	X := q.newVar("X")
-	found := q.ask(st.newStruct("father", X, st.newConst("harald")))
+	found := q.ask(st.newStruct("father", X, st.atom("harald")))
 	if !found {
 		os.Stdout.WriteString("no\n")
 	} else if len(q.vars) == 0 {

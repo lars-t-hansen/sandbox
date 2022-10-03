@@ -11,14 +11,14 @@ func TestUnifiation(t *testing.T) {
 	q := newQuery(c)
 	A := q.newVar("A")
 	B := q.newVar("B")
-	if !unify(A, c.newStruct("f", c.newConst("false"), B)) {
+	if !unify(A, c.newStruct("f", c.atom("false"), B)) {
 		t.Fatal("First test")
 	}
-	if !unify(B, c.newConst("true")) {
+	if !unify(B, c.atom("true")) {
 		t.Fatal("Second test")
 	}
 	D := q.newVar("D")
-	if !unify(A, c.newStruct("f", D, c.newConst("true"))) {
+	if !unify(A, c.newStruct("f", D, c.atom("true"))) {
 		t.Fatal("Third test")
 	}
 	E := q.newVar("E")
@@ -28,7 +28,7 @@ func TestUnifiation(t *testing.T) {
 	if !unify(c.newStruct("f", E, F), c.newStruct("f", G, H)) {
 		t.Fatal("Fourth test")
 	}
-	if !unify(c.newStruct("f", c.newConst("hi"), c.newConst("ho")), E) {
+	if !unify(c.newStruct("f", c.atom("hi"), c.atom("ho")), E) {
 		t.Fatal("Fifth test")
 	}
 	q.toString(&buf)
