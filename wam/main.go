@@ -1,23 +1,3 @@
-// term ::= structure | variable
-// structure ::= functor term*
-// functor ::= symbol
-// rule ::= head body?
-// head ::= structure
-// body ::= structure+
-// query ::= structure
-// ruleset ::= rule*
-
-// To apply a query Q = (f t_1 .. t_n) to a ruleset is to
-//  - select from the ruleset the rules R whose functor and arity match f and n
-//  - if R is empty then fail
-//  - for each rule S in R in order
-//    - create a copy C of S with fresh variables where S has variables
-//    - try to unify the head of C with Q
-//    - if unification succeeds,
-//       - for each structure B in the body of S in order,
-//         - apply the query B to the ruleset
-//       - if any application fails, then fail, otherwise succeed.
-
 package main
 
 import (
@@ -26,13 +6,19 @@ import (
 	"strings"
 )
 
-// Global state for evaluation
+func ASSERT(b bool) {
+	if !b {
+		panic("Assertion failed")
+	}
+}
+
+// Global background state for evaluation
 
 type store struct {
-	// Interned constants.
+	// Interned atoms.
 	atoms map[string]*atom
 
-	// Database of rules.  This is indexed by functor and arity of the head.
+	// Database of rules.  This is indexed by the functor and arity of the head.
 	rules map[*atom]map[int][]*rule
 }
 
@@ -53,17 +39,16 @@ func (st *store) intern(name string) *atom {
 }
 
 func (st *store) assert(r *rule) {
-	functorMap, ok := st.rules[r.head.functor]
+	functorMap, ok := st.rules[r.functor]
 	if !ok {
 		functorMap = make(map[int][]*rule)
-		st.rules[r.head.functor] = functorMap
+		st.rules[r.functor] = functorMap
 	}
-	arity := len(r.head.subterms)
-	aritySlice, ok := functorMap[arity]
+	aritySlice, ok := functorMap[r.arity]
 	if !ok {
 		aritySlice = make([]*rule, 0, 4)
 	}
-	functorMap[arity] = append(aritySlice, r)
+	functorMap[r.arity] = append(aritySlice, r)
 }
 
 func (st *store) lookup(functor *atom, arity int) []*rule {
@@ -78,46 +63,348 @@ func (st *store) lookup(functor *atom, arity int) []*rule {
 	return aritySlice
 }
 
-func (st *store) retract(functor atom, arity int) {
-	panic("NYI")
-}
-
-// Atoms are just strings with object identity
+// Atoms are names with object identity.
 
 type atom struct {
 	name string
 }
 
-func (a *atom) toString(b *strings.Builder) {
-	b.WriteString(a.name)
+func (a *atom) String() string {
+	return a.name
 }
 
-// Numbers are numbers, for now just i64
+func (a *atom) ruleTermTag() string {
+	return "atom"
+}
+
+func (a *atom) valueTermTag() string {
+	return "atom"
+}
+
+// Numbers are i64, for now
 
 type number struct {
 	value int64
 }
 
-func (a *number) toString(b *strings.Builder) {
-	b.WriteString(fmt.Sprint(a.value))
+func (a *number) String() string {
+	return fmt.Sprint(a.value)
 }
 
-// Locals are indices into a rib of variables for the current rule
+func (a *number) ruleTermTag() string {
+	return "number"
+}
+
+func (a *number) valueTermTag() string {
+	return "number"
+}
+
+// Locals are indices into a rib of variables for the current rule.  (In principle
+// the local could also carry a name.)
 
 type local struct {
 	slot int
 }
 
-type env []variable
-
-func (a *local) toString(b *strings.Builder) {
-	b.WriteString(fmt.Sprintf("V%d", a.slot))
+func (a *local) String() string {
+	return fmt.Sprintf("V%d", a.slot)
 }
 
-func (a *local) resolve(e env) any {
-	v := &e[a.slot]
-	return v.resolveVar()
+func (a *local) ruleTermTag() string {
+	return "local"
 }
+
+// Varslots are storage for variables.  They are allocated inside ribs, which are themselves
+// allocated when predicates are evaluated.
+//
+// If `val` is not nil then it is the value held in this slot.  Otherwise, `next` is either nil,
+// in which case this is the canonical varslot for a variable, or it points to another varslot
+// that this varslot has been unified with.
+
+type varslot struct {
+	next *varslot
+	val  valueTerm
+}
+
+func (v *varslot) String() string {
+	if v.val != nil {
+		return "[value " + v.val.String() + "]"
+	}
+	return "[varslot]"
+}
+
+func (v *varslot) valueTermTag() string {
+	return "[varslot]"
+}
+
+type rib []varslot
+
+// Structures represent facts or predicates.
+
+type unboundStruct struct {
+	functor  *atom
+	subterms []ruleTerm
+}
+
+func (v *unboundStruct) String() string {
+	var b strings.Builder
+	b.WriteString(v.functor.String())
+	if len(v.subterms) > 0 {
+		b.WriteRune('(')
+		for i, a := range v.subterms {
+			if i > 0 {
+				b.WriteRune(',')
+			}
+			b.WriteString(a.String())
+		}
+		b.WriteRune(')')
+	}
+	return b.String()
+}
+
+func (a *unboundStruct) ruleTermTag() string {
+	return "struct"
+}
+
+func bind(t ruleTerm, e rib) valueTerm {
+	switch x := t.(type) {
+	case *unboundStruct:
+		return &boundStruct{env: e, s: x}
+	case *atom:
+		return x
+	case *number:
+		return x
+	case *local:
+		return &e[x.slot]
+	default:
+		panic("NYI")
+	}
+}
+
+func bind_terms(ts []ruleTerm, e rib) []valueTerm {
+	vs := make([]valueTerm, len(ts))
+	for i, t := range ts {
+		vs[i] = bind(t, e)
+	}
+	return vs
+}
+
+type boundStruct struct {
+	env rib
+	s   *unboundStruct
+}
+
+func (v *boundStruct) valueTermTag() string {
+	return "struct"
+}
+
+func (v *boundStruct) String() string {
+	var b strings.Builder
+	b.WriteString(v.s.functor.String())
+	if len(v.s.subterms) > 0 {
+		b.WriteRune('(')
+		for i, a := range v.s.subterms {
+			if i > 0 {
+				b.WriteRune(',')
+			}
+			b.WriteString(bind(a, v.env).String())
+		}
+		b.WriteRune(')')
+	}
+	return b.String()
+}
+
+// Rules represent rules in the database or queries.  The head may be any term, and for ease
+// of processing we've broken it out into its components.  For a query, the head is just a
+// fact, we use true/0.  Rules are compiled.  The `locals` member is the number of varslots to
+// allocate for the rib, representing the number of variables in the rule.
+
+type ruleTerm interface {
+	fmt.Stringer
+	ruleTermTag() string
+}
+
+type rule struct {
+	locals  int
+	arity   int
+	functor *atom
+	args    []ruleTerm
+	body    []ruleTerm
+}
+
+type valueTerm interface {
+	fmt.Stringer
+	valueTermTag() string
+}
+
+// "Resolving" a variable iterates until it finds a value or an unbound varslot at the end of the
+// chain, the canonical varslot.  Exactly one of the return values is not nil.
+
+func (v *varslot) resolve(e rib) (valueTerm, *varslot) {
+	for v.val == nil && v.next != nil {
+		v = v.next
+	}
+	if v.val != nil {
+		return v.val, nil
+	}
+	return nil, v
+}
+
+// Evaluation is CPS-based for now, this is not very efficient but is semantically clean.  If
+// unification succeeds locally then the continuation is invoked, and if there are not effects
+// to undo then that invocation can be a tail call.  If there are effects then the invocation
+// is a non-tail call.  If the continuation returns false then we undo the effects.
+//
+// The idea here is that the ultimate continuation passed in from the repl prints out the current
+// bindings of the variables in the query and waits for feedback from the user.  If the user
+// says to fail and retry then false is returned and we backtrack.  If the user says to succeed then
+// true is returned and we commit and return all the way out.
+
+func unify(e rib, val1 valueTerm, val2 valueTerm, k func() bool) bool {
+	var var1, var2 *varslot
+	// TODO: As an optimization we want the varslots in the rib to be updated to point to the
+	// canonical var here so that we don't have to search as many steps later.  This is not
+	// important for correctness though so do it later.
+	if ub1, ok := val1.(*varslot); ok {
+		val1, var1 = ub1.resolve(e)
+	}
+	if ub2, ok := val2.(*varslot); ok {
+		val2, var2 = ub2.resolve(e)
+	}
+	if var1 != nil {
+		if var2 != nil {
+			if var1 != var2 {
+				ASSERT(var1.next == nil && var2.next == nil)
+				ASSERT(var1.val == nil && var2.val == nil)
+				// Arbitrarily make the second point to the first
+				var2.next = var1
+				if !k() {
+					var2.next = nil
+					return false
+				}
+				return true
+			}
+		}
+		ASSERT(var1.next == nil && var1.val == nil)
+		var1.val = val2
+		if !k() {
+			var1.val = nil
+			return false
+		}
+		return true
+	}
+	if var2 != nil {
+		ASSERT(var2.next == nil && var2.val == nil)
+		var2.val = var1
+		if !k() {
+			var2.val = nil
+			return false
+		}
+		return true
+	}
+	if s1, ok := val1.(*boundStruct); ok {
+		if s2, ok := val2.(*boundStruct); ok {
+			if s1.s.functor != s2.s.functor || len(s1.s.subterms) != len(s2.s.subterms) {
+				return false
+			}
+			return unify_terms(e, bind_terms(s1.s.subterms, s1.env), bind_terms(s2.s.subterms, s2.env), k)
+		}
+		return false
+	}
+	if a1, ok := val1.(*atom); ok {
+		if a2, ok := val2.(*atom); ok {
+			if a1 == a2 {
+				return k()
+			}
+		}
+		return false
+	}
+	if n1, ok := val1.(*number); ok {
+		if n2, ok := val2.(*number); ok {
+			if n1.value == n2.value {
+				return k()
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func unify_terms(e rib, s1 []valueTerm, s2 []valueTerm, k func() bool) bool {
+	if len(s1) == 0 {
+		return k()
+	}
+	return unify(e, s1[0], s2[0], func() bool {
+		return unify_terms(e, s1[1:], s2[1:], k)
+	})
+}
+
+func (st *store) evaluate_rule(r *rule, actuals []valueTerm, k func() bool) bool {
+	ASSERT(len(actuals) == r.arity)
+	newRib := make(rib, r.locals)
+	return unify_terms(newRib, actuals, bind_terms(r.args, newRib), func() bool {
+		return st.evaluate_conjunct(newRib, r.body, k)
+	})
+}
+
+func (st *store) evaluate_conjunct(e rib, ts []ruleTerm, k func() bool) bool {
+	if len(ts) == 0 {
+		return k()
+	}
+	switch t := ts[0].(type) {
+	case *number, *atom, *local:
+		return k()
+	case *unboundStruct:
+		candidates := st.lookup(t.functor, len(t.subterms))
+		return st.evaluate_disjunct(e, bind_terms(t.subterms, e), candidates, func() bool {
+			return st.evaluate_conjunct(e, ts[1:], k)
+		})
+	default:
+		panic(fmt.Sprintf("No such structure %v", t))
+	}
+}
+
+func (st *store) evaluate_disjunct(e rib, actuals []valueTerm, disjuncts []*rule, k func() bool) bool {
+	for _, d := range disjuncts {
+		if st.evaluate_rule(d, actuals, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// consider f(X) :- g(h(i(X)))
+//
+// the X is a reference to the local rib but the X in h(i(X)) has to be represented
+// as a varslot, or as a (rib, index) pair - either way it is no longer some kind
+// of constant.  In the structure in the rule it is local(0) but this is insufficient.
+//
+// It is possible that terms can be passed along with their ribs?
+//
+// That is, when a rule is invoked a new entity is created that pairs the body terms
+// with a rib.  Each term would have to have a reference to the rib somehow.  This
+// reference would have to be maintained as the structure is decomposed and so on,
+// leading to the context (the rib) for a variable being passed everywhere as part
+// of the term.
+//
+// In particular, when a var is unified with a term, the term's context also has to
+// be stored in the var.
+//
+// The idea of locals was to avoid having to rebuild the rule body every time we
+// enter a rule.  But this has pushed the complexity elsewhere.  In truth, h(i(X)) is
+// like a closure, and it needs to retain a reference to its environment to be
+// evaluated properly.
+//
+// This complexity is not seen in f(X) :- g(X), for example, only when the variable
+// is hidden inside a structure -- again, it's a closure.
+//
+// So, a structure is a closure that retains a reference to the environment that
+// holds the closed-over variables.  In h(i(X)), the representation is h(.) + e
+// and when we descend into h, it becomes i(.) + e, and when we encounter X inside
+// i we look it up in e.
+//
+// Thus a structure in a rule is *not* the same thing as a structure value, rather
+// it is like a lambda expression, being input to closure creation.
 
 // Rough plan
 //
@@ -134,23 +421,7 @@ func (a *local) resolve(e env) any {
 // Evaluation is pretty much CPS because this allows failure to be encoded simply: the
 // eventual continuation prints the variables of the query, but when made to fail we just
 // backtrack into the recursion.
-
-// type term union {
-//   *structure
-//   *local
-//   *atom
-//   *number
-// }
-
-type term interface {
-	toString(*strings.Builder)
-}
-
-type structure struct {
-	functor  *atom
-	subterms []term
-}
-
+/*
 func (st *store) newStruct(name string, args ...term) *structure {
 	return &structure{functor: st.intern(name), subterms: args}
 }
@@ -158,20 +429,7 @@ func (st *store) newStruct(name string, args ...term) *structure {
 func (st *store) atom(name string) *atom {
 	return st.intern(name)
 }
-
-func (v *structure) toString(b *strings.Builder) {
-	v.functor.toString(b)
-	if len(v.subterms) > 0 {
-		b.WriteRune('(')
-		for i, a := range v.subterms {
-			if i > 0 {
-				b.WriteRune(',')
-			}
-			a.toString(b)
-		}
-		b.WriteRune(')')
-	}
-}
+*/
 
 // The name does not need to be here, it can be stored externally in a R/O structure,
 // and basically just for queries - normal ribs don't need it at all, except for
@@ -195,6 +453,17 @@ func (v *structure) toString(b *strings.Builder) {
 // the way down.  The index is just so that we don't need to reconstruct a term every time
 // we enter a rule, the term representation is immutable.
 
+// To apply a query Q = (f t_1 .. t_n) to a ruleset is to
+//  - select from the ruleset the rules R whose functor and arity match f and n
+//  - if R is empty then fail
+//  - for each rule S in R in order
+//    - create a copy C of S with fresh variables where S has variables
+//    - try to unify the head of C with Q
+//    - if unification succeeds,
+//       - for each structure B in the body of S in order,
+//         - apply the query B to the ruleset
+//       - if any application fails, then fail, otherwise succeed.
+/*
 type variable struct {
 	// Precisely one of `uvar` and `val` is nil.
 
@@ -216,7 +485,7 @@ type variable struct {
 	// - nil in every other case
 	val term
 }
-
+*/
 /*
 func (st *store) newVar(name string) *variable {
 	v := &variable{name: st.intern(name)}
@@ -234,7 +503,7 @@ func (v *variable) toString(b *strings.Builder) {
 	}
 }
 */
-
+/*
 func (v *variable) resolveVar() term {
 	for v.uvar != nil && v.uvar != v {
 		next := v.uvar
@@ -278,72 +547,12 @@ func (q *query) newVar(name string) *variable {
 	return v
 }
 
-type rule struct {
-	locals int
-	head   *structure
-	body   []*structure
-}
-
 func newFact(head *structure) *rule {
 	return &rule{head: head, body: []*structure{}}
 }
+*/
 
-func unify(e env, lhs term, rhs term) bool {
-	var t1, t2 any
-	if v1, ok := lhs.(*local); ok {
-		t1 = v1.resolve(e)
-	} else {
-		t1 = lhs
-	}
-	if v2, ok := rhs.(*local); ok {
-		t2 = v2.resolve(e)
-	} else {
-		t2 = rhs
-	}
-	if v1, ok := t1.(*variable); ok {
-		if v2, ok := t2.(*variable); ok {
-			// Arbitrarily make the second point to the first
-			v2.uvar = v1
-			return true
-		}
-		v1.uvar = nil
-		v1.val = rhs
-		return true
-	}
-	if v2, ok := t2.(*variable); ok {
-		v2.uvar = nil
-		v2.val = lhs
-		return true
-	}
-	if s1, ok := t1.(*structure); ok {
-		if s2, ok := t2.(*structure); ok {
-			if s1.functor != s2.functor || len(s1.subterms) != len(s2.subterms) {
-				return false
-			}
-			for i := 0; i < len(s1.subterms); i++ {
-				if !unify(e, s1.subterms[i], s2.subterms[i]) {
-					return false
-				}
-			}
-			return true
-		}
-		return false
-	}
-	if a1, ok := t1.(*atom); ok {
-		if a2, ok := t2.(*atom); ok {
-			return a1 == a2
-		}
-		return false
-	}
-	if n1, ok := t1.(*number); ok {
-		if n2, ok := t2.(*number); ok {
-			return n1.value == n2.value
-		}
-		return false
-	}
-	return false
-}
-
+/*
 func (q *query) ask(s *structure) bool {
 	rules := q.st.lookup(s.functor, len(s.subterms))
 	for _, r := range rules {
@@ -358,25 +567,43 @@ func (q *query) ask(s *structure) bool {
 	}
 	return false
 }
+*/
 
 func main() {
-	var buf strings.Builder
 	st := newStore()
-	st.assert(newFact(st.newStruct("father", st.atom("haakon"), st.atom("olav"))))
-	st.assert(newFact(st.newStruct("father", st.atom("olav"), st.atom("harald"))))
-	st.assert(newFact(st.newStruct("father", st.atom("harald"), st.atom("håkon magnus"))))
-	st.assert(newFact(st.newStruct("father", st.atom("håkon magnus"), st.atom("ingrid alexandra"))))
-	// a query is just a rib whose lifetime is controlled
-	// q.newVar creates a new local but also somehow records it so that we can print them out
-	q := newQuery(st)
-	X := q.newVar("X")
-	found := q.ask(st.newStruct("father", X, st.atom("harald")))
-	if !found {
-		os.Stdout.WriteString("no\n")
-	} else if len(q.vars) == 0 {
+
+	// :- father(haakon, olav).
+	// :- father(olav, harald).
+	// :- father(harald, 'håkon magnus').
+	// :- father('håkon magnus', 'ingrid alexandra').
+
+	empty := []ruleTerm{}
+	father := st.intern("father")
+	haakon := st.intern("haakon")
+	olav := st.intern("olav")
+	harald := st.intern("harald")
+	krompen := st.intern("håkon magnus")
+	prinsessa := st.intern("ingrid alexandra")
+	st.assert(&rule{0, 2, father, []ruleTerm{haakon, olav}, empty})
+	st.assert(&rule{0, 2, father, []ruleTerm{olav, harald}, empty})
+	st.assert(&rule{0, 2, father, []ruleTerm{harald, krompen}, empty})
+	st.assert(&rule{0, 2, father, []ruleTerm{krompen, prinsessa}, empty})
+
+	// ?- father(X, harald)
+
+	X := st.intern("X")
+	query := []ruleTerm{&unboundStruct{father, []ruleTerm{&local{0}, harald}}}
+	names := []*atom{X}
+	vars := make(rib, 1)
+	result := st.evaluate_conjunct(vars, query, func() bool {
+		for i, n := range names {
+			os.Stdout.WriteString(n.name + "=" + vars[i].String() + "\n")
+		}
+		return true
+	})
+	if result {
 		os.Stdout.WriteString("yes\n")
 	} else {
-		q.toString(&buf)
-		os.Stdout.WriteString(buf.String())
+		os.Stdout.WriteString("no\n")
 	}
 }
