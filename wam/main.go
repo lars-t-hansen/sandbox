@@ -341,15 +341,7 @@ func unify_terms(s1 []valueTerm, s2 []valueTerm, k func() bool) bool {
 	})
 }
 
-func (st *store) evaluate_rule(r *rule, actuals []valueTerm, k func() bool) bool {
-	ASSERT(len(actuals) == r.arity)
-	newRib := make(rib, r.locals)
-	return unify_terms(actuals, bind_terms(r.formals, newRib), func() bool {
-		return st.evaluate_conjunct(newRib, r.body, k)
-	})
-}
-
-func (st *store) evaluate_conjunct(e rib, ts []ruleTerm, k func() bool) bool {
+func (st *store) evaluateConjunct(e rib, ts []ruleTerm, k func() bool) bool {
 	if len(ts) == 0 {
 		return k()
 	}
@@ -358,26 +350,31 @@ func (st *store) evaluate_conjunct(e rib, ts []ruleTerm, k func() bool) bool {
 		return k()
 	case *unboundStruct:
 		candidates := st.lookup(t.functor, len(t.subterms))
-		return st.evaluate_disjunct(bind_terms(t.subterms, e), candidates, func() bool {
-			return st.evaluate_conjunct(e, ts[1:], k)
+		return st.evaluateDisjunct(bind_terms(t.subterms, e), candidates, func() bool {
+			return st.evaluateConjunct(e, ts[1:], k)
 		})
 	default:
 		panic(fmt.Sprintf("No such structure %v", t))
 	}
 }
 
-func (st *store) evaluate_disjunct(actuals []valueTerm, disjuncts []*rule, k func() bool) bool {
-	for _, d := range disjuncts {
-		if st.evaluate_rule(d, actuals, k) {
+func (st *store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, k func() bool) bool {
+	for _, r := range disjuncts {
+		ASSERT(len(actuals) == r.arity)
+		newRib := make(rib, r.locals)
+		res := unify_terms(actuals, bind_terms(r.formals, newRib), func() bool {
+			return st.evaluateConjunct(newRib, r.body, k)
+		})
+		if res {
 			return true
 		}
 	}
 	return false
 }
 
-func evalQuery(st *store, query []ruleTerm, names []*atom) {
+func (st *store) evaluateQuery(query []ruleTerm, names []*atom) {
 	vars := make(rib, len(names))
-	result := st.evaluate_conjunct(vars, query, func() bool {
+	result := st.evaluateConjunct(vars, query, func() bool {
 		for i, n := range names {
 			os.Stdout.WriteString(n.name + "=" + vars[i].String() + "\n")
 		}
@@ -415,7 +412,7 @@ func main() {
 	X := st.intern("X")
 	query := []ruleTerm{&unboundStruct{father, []ruleTerm{harald, &local{0}}}}
 	names := []*atom{X}
-	evalQuery(st, query, names)
+	st.evaluateQuery(query, names)
 
 	// grandfather(X, Y) :- father(X, Z), father(Z, Y)
 
@@ -430,7 +427,7 @@ func main() {
 
 	query = []ruleTerm{&unboundStruct{grandfather, []ruleTerm{harald, &local{0}}}}
 	names = []*atom{X}
-	evalQuery(st, query, names)
+	st.evaluateQuery(query, names)
 }
 
 // Misc notes
