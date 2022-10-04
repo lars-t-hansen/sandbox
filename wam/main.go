@@ -127,6 +127,7 @@ type varslot struct {
 }
 
 func (v *varslot) String() string {
+	ASSERT(v != nil)
 	if v.val != nil {
 		return "[value " + v.val.String() + "]"
 	}
@@ -167,6 +168,7 @@ func (a *unboundStruct) ruleTermTag() string {
 }
 
 func bind(t ruleTerm, e rib) valueTerm {
+	ASSERT(t != nil)
 	switch x := t.(type) {
 	case *unboundStruct:
 		return &boundStruct{env: e, s: x}
@@ -228,7 +230,7 @@ type rule struct {
 	locals  int
 	arity   int
 	functor *atom
-	args    []ruleTerm
+	formals []ruleTerm
 	body    []ruleTerm
 }
 
@@ -240,7 +242,7 @@ type valueTerm interface {
 // "Resolving" a variable iterates until it finds a value or an unbound varslot at the end of the
 // chain, the canonical varslot.  Exactly one of the return values is not nil.
 
-func (v *varslot) resolve(e rib) (valueTerm, *varslot) {
+func (v *varslot) resolve() (valueTerm, *varslot) {
 	for v.val == nil && v.next != nil {
 		v = v.next
 	}
@@ -260,16 +262,16 @@ func (v *varslot) resolve(e rib) (valueTerm, *varslot) {
 // says to fail and retry then false is returned and we backtrack.  If the user says to succeed then
 // true is returned and we commit and return all the way out.
 
-func unify(e rib, val1 valueTerm, val2 valueTerm, k func() bool) bool {
+func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
 	var var1, var2 *varslot
 	// TODO: As an optimization we want the varslots in the rib to be updated to point to the
 	// canonical var here so that we don't have to search as many steps later.  This is not
 	// important for correctness though so do it later.
 	if ub1, ok := val1.(*varslot); ok {
-		val1, var1 = ub1.resolve(e)
+		val1, var1 = ub1.resolve()
 	}
 	if ub2, ok := val2.(*varslot); ok {
-		val2, var2 = ub2.resolve(e)
+		val2, var2 = ub2.resolve()
 	}
 	if var1 != nil {
 		if var2 != nil {
@@ -295,7 +297,7 @@ func unify(e rib, val1 valueTerm, val2 valueTerm, k func() bool) bool {
 	}
 	if var2 != nil {
 		ASSERT(var2.next == nil && var2.val == nil)
-		var2.val = var1
+		var2.val = val1
 		if !k() {
 			var2.val = nil
 			return false
@@ -307,7 +309,7 @@ func unify(e rib, val1 valueTerm, val2 valueTerm, k func() bool) bool {
 			if s1.s.functor != s2.s.functor || len(s1.s.subterms) != len(s2.s.subterms) {
 				return false
 			}
-			return unify_terms(e, bind_terms(s1.s.subterms, s1.env), bind_terms(s2.s.subterms, s2.env), k)
+			return unify_terms(bind_terms(s1.s.subterms, s1.env), bind_terms(s2.s.subterms, s2.env), k)
 		}
 		return false
 	}
@@ -330,19 +332,19 @@ func unify(e rib, val1 valueTerm, val2 valueTerm, k func() bool) bool {
 	return false
 }
 
-func unify_terms(e rib, s1 []valueTerm, s2 []valueTerm, k func() bool) bool {
+func unify_terms(s1 []valueTerm, s2 []valueTerm, k func() bool) bool {
 	if len(s1) == 0 {
 		return k()
 	}
-	return unify(e, s1[0], s2[0], func() bool {
-		return unify_terms(e, s1[1:], s2[1:], k)
+	return unify(s1[0], s2[0], func() bool {
+		return unify_terms(s1[1:], s2[1:], k)
 	})
 }
 
 func (st *store) evaluate_rule(r *rule, actuals []valueTerm, k func() bool) bool {
 	ASSERT(len(actuals) == r.arity)
 	newRib := make(rib, r.locals)
-	return unify_terms(newRib, actuals, bind_terms(r.args, newRib), func() bool {
+	return unify_terms(actuals, bind_terms(r.formals, newRib), func() bool {
 		return st.evaluate_conjunct(newRib, r.body, k)
 	})
 }
@@ -356,7 +358,7 @@ func (st *store) evaluate_conjunct(e rib, ts []ruleTerm, k func() bool) bool {
 		return k()
 	case *unboundStruct:
 		candidates := st.lookup(t.functor, len(t.subterms))
-		return st.evaluate_disjunct(e, bind_terms(t.subterms, e), candidates, func() bool {
+		return st.evaluate_disjunct(bind_terms(t.subterms, e), candidates, func() bool {
 			return st.evaluate_conjunct(e, ts[1:], k)
 		})
 	default:
@@ -364,7 +366,7 @@ func (st *store) evaluate_conjunct(e rib, ts []ruleTerm, k func() bool) bool {
 	}
 }
 
-func (st *store) evaluate_disjunct(e rib, actuals []valueTerm, disjuncts []*rule, k func() bool) bool {
+func (st *store) evaluate_disjunct(actuals []valueTerm, disjuncts []*rule, k func() bool) bool {
 	for _, d := range disjuncts {
 		if st.evaluate_rule(d, actuals, k) {
 			return true
@@ -372,6 +374,66 @@ func (st *store) evaluate_disjunct(e rib, actuals []valueTerm, disjuncts []*rule
 	}
 	return false
 }
+
+func evalQuery(st *store, query []ruleTerm, names []*atom) {
+	vars := make(rib, len(names))
+	result := st.evaluate_conjunct(vars, query, func() bool {
+		for i, n := range names {
+			os.Stdout.WriteString(n.name + "=" + vars[i].String() + "\n")
+		}
+		return true
+	})
+	if result {
+		os.Stdout.WriteString("yes\n")
+	} else {
+		os.Stdout.WriteString("no\n")
+	}
+}
+
+func main() {
+	st := newStore()
+
+	// :- father(haakon, olav).
+	// :- father(olav, harald).
+	// :- father(harald, 'håkon magnus').
+	// :- father('håkon magnus', 'ingrid alexandra').
+
+	empty := []ruleTerm{}
+	father := st.intern("father")
+	haakon := st.intern("haakon")
+	olav := st.intern("olav")
+	harald := st.intern("harald")
+	krompen := st.intern("håkon magnus")
+	prinsessa := st.intern("ingrid alexandra")
+	st.assert(&rule{0, 2, father, []ruleTerm{haakon, olav}, empty})
+	st.assert(&rule{0, 2, father, []ruleTerm{olav, harald}, empty})
+	st.assert(&rule{0, 2, father, []ruleTerm{harald, krompen}, empty})
+	st.assert(&rule{0, 2, father, []ruleTerm{krompen, prinsessa}, empty})
+
+	// ?- father(X, harald)
+
+	X := st.intern("X")
+	query := []ruleTerm{&unboundStruct{father, []ruleTerm{harald, &local{0}}}}
+	names := []*atom{X}
+	evalQuery(st, query, names)
+
+	// grandfather(X, Y) :- father(X, Z), father(Z, Y)
+
+	grandfather := st.intern("grandfather")
+	st.assert(&rule{3, 2, grandfather,
+		[]ruleTerm{&local{0}, &local{1}},
+		[]ruleTerm{
+			&unboundStruct{father, []ruleTerm{&local{0}, &local{2}}},
+			&unboundStruct{father, []ruleTerm{&local{2}, &local{1}}}}})
+
+	// ?- grandfather(harald, X)
+
+	query = []ruleTerm{&unboundStruct{grandfather, []ruleTerm{harald, &local{0}}}}
+	names = []*atom{X}
+	evalQuery(st, query, names)
+}
+
+// Misc notes
 
 // consider f(X) :- g(h(i(X)))
 //
@@ -421,15 +483,6 @@ func (st *store) evaluate_disjunct(e rib, actuals []valueTerm, disjuncts []*rule
 // Evaluation is pretty much CPS because this allows failure to be encoded simply: the
 // eventual continuation prints the variables of the query, but when made to fail we just
 // backtrack into the recursion.
-/*
-func (st *store) newStruct(name string, args ...term) *structure {
-	return &structure{functor: st.intern(name), subterms: args}
-}
-
-func (st *store) atom(name string) *atom {
-	return st.intern(name)
-}
-*/
 
 // The name does not need to be here, it can be stored externally in a R/O structure,
 // and basically just for queries - normal ribs don't need it at all, except for
@@ -463,147 +516,3 @@ func (st *store) atom(name string) *atom {
 //       - for each structure B in the body of S in order,
 //         - apply the query B to the ruleset
 //       - if any application fails, then fail, otherwise succeed.
-/*
-type variable struct {
-	// Precisely one of `uvar` and `val` is nil.
-
-	// `uvar`` is:
-	//
-	// - nil for a concrete value
-	// - a pointer to a different variable after var-var unification
-	//   where this variable is not the canonical variable
-	// - and a pointer to this variable for a canonical unbound variable.
-	//
-	// The last case creates a cycle, and for a refcount-friendly implementation
-	// a pointer to a shared "unbound variable" sentinel might be better,
-	// even if conceptually more complex.
-	uvar *variable
-
-	// `val` is:
-	//
-	// - non-nil for a concrete value
-	// - nil in every other case
-	val term
-}
-*/
-/*
-func (st *store) newVar(name string) *variable {
-	v := &variable{name: st.intern(name)}
-	v.uvar = v
-	return v
-}
-
-func (v *variable) toString(b *strings.Builder) {
-	if v.val != nil {
-		v.val.toString(b)
-	} else if v.uvar != v {
-		v.uvar.toString(b)
-	} else {
-		v.name.toString(b)
-	}
-}
-*/
-/*
-func (v *variable) resolveVar() term {
-	for v.uvar != nil && v.uvar != v {
-		next := v.uvar
-		if next.uvar == nil {
-			v.uvar = nil
-			v.val = next.val
-		} else {
-			v.uvar = next.uvar
-		}
-	}
-	if v.val != nil {
-		return v.val
-	}
-	return v
-}
-
-type query struct {
-	st *store
-
-	// These are variables that are free in the query
-	vars []*variable
-}
-
-func newQuery(st *store) *query {
-	return &query{st: st, vars: []*variable{}}
-}
-
-func (q *query) toString(b *strings.Builder) {
-	for _, v := range q.vars {
-		v.name.toString(b)
-		b.WriteString(" = ")
-		v.toString(b)
-		b.WriteRune('\n')
-	}
-}
-
-func (q *query) newVar(name string) *variable {
-	v := &variable{name: q.st.intern(name)}
-	v.uvar = v
-	q.vars = append(q.vars, v)
-	return v
-}
-
-func newFact(head *structure) *rule {
-	return &rule{head: head, body: []*structure{}}
-}
-*/
-
-/*
-func (q *query) ask(s *structure) bool {
-	rules := q.st.lookup(s.functor, len(s.subterms))
-	for _, r := range rules {
-		if unify(r.head, s) {
-			return true
-		}
-		// Unbind any query variables bound by the unification
-		for _, v := range q.vars {
-			v.val = nil
-			v.uvar = v
-		}
-	}
-	return false
-}
-*/
-
-func main() {
-	st := newStore()
-
-	// :- father(haakon, olav).
-	// :- father(olav, harald).
-	// :- father(harald, 'håkon magnus').
-	// :- father('håkon magnus', 'ingrid alexandra').
-
-	empty := []ruleTerm{}
-	father := st.intern("father")
-	haakon := st.intern("haakon")
-	olav := st.intern("olav")
-	harald := st.intern("harald")
-	krompen := st.intern("håkon magnus")
-	prinsessa := st.intern("ingrid alexandra")
-	st.assert(&rule{0, 2, father, []ruleTerm{haakon, olav}, empty})
-	st.assert(&rule{0, 2, father, []ruleTerm{olav, harald}, empty})
-	st.assert(&rule{0, 2, father, []ruleTerm{harald, krompen}, empty})
-	st.assert(&rule{0, 2, father, []ruleTerm{krompen, prinsessa}, empty})
-
-	// ?- father(X, harald)
-
-	X := st.intern("X")
-	query := []ruleTerm{&unboundStruct{father, []ruleTerm{&local{0}, harald}}}
-	names := []*atom{X}
-	vars := make(rib, 1)
-	result := st.evaluate_conjunct(vars, query, func() bool {
-		for i, n := range names {
-			os.Stdout.WriteString(n.name + "=" + vars[i].String() + "\n")
-		}
-		return true
-	})
-	if result {
-		os.Stdout.WriteString("yes\n")
-	} else {
-		os.Stdout.WriteString("no\n")
-	}
-}
