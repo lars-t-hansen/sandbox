@@ -56,8 +56,10 @@ func (n *astStruct) String() string {
 //
 // The input to the compiler is a head structure and a slice of subterms, also structures.
 // These structures are fully ground - this is source code!  There is a
+/*
 func compileRule(head *astStruct, subterms []*astNode) *rule {
 	//rib := make(map[string]int)
 
 	panic("NYI")
 }
+*/
