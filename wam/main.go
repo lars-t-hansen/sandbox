@@ -1,3 +1,20 @@
+// Unification-based resolution engine (a la Prolog)
+//
+// Most of this is pretty straightforward, and currently there's a quasi-CPS evaluation
+// strategy in place where the success continuation is passed explicitly and the
+// failure continuation uses the regular call stack.
+//
+// One tricky bit is how variables are managed.  Consider a rule:
+//
+//   f(X) :- g(h(i(X)))
+//
+// Here the X is fresh every time the rule is evaluated, but the X in h(i(X)) must
+// always reference the X in the rib of f, not some variable in whatever context
+// in which we happen to descend into h(i(X)).  The solution here is that h(i(X)) in
+// effect is treated as a closure that closes over the environment that has the
+// slot for X.  (An alternative is that the rule for f is cloned every time it is
+// invoked and fresh variables are created and referenced from the clone.)
+
 package main
 
 import (
@@ -252,21 +269,16 @@ func (v *varslot) resolve() (valueTerm, *varslot) {
 	return nil, v
 }
 
-// Evaluation is CPS-based for now, this is not very efficient but is semantically clean.  If
-// unification succeeds locally then the continuation is invoked, and if there are not effects
-// to undo then that invocation can be a tail call.  If there are effects then the invocation
-// is a non-tail call.  If the continuation returns false then we undo the effects.
-//
-// The idea here is that the ultimate continuation passed in from the repl prints out the current
-// bindings of the variables in the query and waits for feedback from the user.  If the user
-// says to fail and retry then false is returned and we backtrack.  If the user says to succeed then
-// true is returned and we commit and return all the way out.
+// Evaluation is quasi-CPS-based for now, this is not very efficient but is semantically clean.
+// If unification succeeds locally then the success continuation is invoked, and if there are
+// no effects to undo then that invocation can be a tail call.  If there are effects then the
+// invocation is a non-tail call - the failure continuation is encoded in the call stack.  If
+// the success continuation returns false then we undo the effects.
 
-func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
+func unify(val1 valueTerm, val2 valueTerm, onSuccess func() bool) bool {
 	var var1, var2 *varslot
 	// TODO: As an optimization we want the varslots in the rib to be updated to point to the
-	// canonical var here so that we don't have to search as many steps later.  This is not
-	// important for correctness though so do it later.
+	// canonical var here so that we don't have to search as many steps later.
 	if ub1, ok := val1.(*varslot); ok {
 		val1, var1 = ub1.resolve()
 	}
@@ -280,7 +292,7 @@ func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
 				ASSERT(var1.val == nil && var2.val == nil)
 				// Arbitrarily make the second point to the first
 				var2.next = var1
-				if !k() {
+				if !onSuccess() {
 					var2.next = nil
 					return false
 				}
@@ -289,7 +301,7 @@ func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
 		}
 		ASSERT(var1.next == nil && var1.val == nil)
 		var1.val = val2
-		if !k() {
+		if !onSuccess() {
 			var1.val = nil
 			return false
 		}
@@ -298,7 +310,7 @@ func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
 	if var2 != nil {
 		ASSERT(var2.next == nil && var2.val == nil)
 		var2.val = val1
-		if !k() {
+		if !onSuccess() {
 			var2.val = nil
 			return false
 		}
@@ -309,14 +321,14 @@ func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
 			if s1.s.functor != s2.s.functor || len(s1.s.subterms) != len(s2.s.subterms) {
 				return false
 			}
-			return unify_terms(bind_terms(s1.s.subterms, s1.env), bind_terms(s2.s.subterms, s2.env), k)
+			return unify_terms(bind_terms(s1.s.subterms, s1.env), bind_terms(s2.s.subterms, s2.env), onSuccess)
 		}
 		return false
 	}
 	if a1, ok := val1.(*atom); ok {
 		if a2, ok := val2.(*atom); ok {
 			if a1 == a2 {
-				return k()
+				return onSuccess()
 			}
 		}
 		return false
@@ -324,7 +336,7 @@ func unify(val1 valueTerm, val2 valueTerm, k func() bool) bool {
 	if n1, ok := val1.(*number); ok {
 		if n2, ok := val2.(*number); ok {
 			if n1.value == n2.value {
-				return k()
+				return onSuccess()
 			}
 		}
 		return false
@@ -429,87 +441,3 @@ func main() {
 	names = []*atom{X}
 	st.evaluateQuery(query, names)
 }
-
-// Misc notes
-
-// consider f(X) :- g(h(i(X)))
-//
-// the X is a reference to the local rib but the X in h(i(X)) has to be represented
-// as a varslot, or as a (rib, index) pair - either way it is no longer some kind
-// of constant.  In the structure in the rule it is local(0) but this is insufficient.
-//
-// It is possible that terms can be passed along with their ribs?
-//
-// That is, when a rule is invoked a new entity is created that pairs the body terms
-// with a rib.  Each term would have to have a reference to the rib somehow.  This
-// reference would have to be maintained as the structure is decomposed and so on,
-// leading to the context (the rib) for a variable being passed everywhere as part
-// of the term.
-//
-// In particular, when a var is unified with a term, the term's context also has to
-// be stored in the var.
-//
-// The idea of locals was to avoid having to rebuild the rule body every time we
-// enter a rule.  But this has pushed the complexity elsewhere.  In truth, h(i(X)) is
-// like a closure, and it needs to retain a reference to its environment to be
-// evaluated properly.
-//
-// This complexity is not seen in f(X) :- g(X), for example, only when the variable
-// is hidden inside a structure -- again, it's a closure.
-//
-// So, a structure is a closure that retains a reference to the environment that
-// holds the closed-over variables.  In h(i(X)), the representation is h(.) + e
-// and when we descend into h, it becomes i(.) + e, and when we encounter X inside
-// i we look it up in e.
-//
-// Thus a structure in a rule is *not* the same thing as a structure value, rather
-// it is like a lambda expression, being input to closure creation.
-
-// Rough plan
-//
-// The meaning of "variable" becomes "local variable" which holds the index into a rib.
-// Every rule f(A) :- g(B), h(C) is evaluated in a rib holding A, B, C
-// After var-var unification these slots can forward to other variables
-// A variable representation is therefor (rib,index) where rib is just a rib object
-// The variable slot also holds a possible value, obviously
-// GC ensures that the ribs are kept alive
-//
-// A query is then a term + a rib holding the variables that are free in the query,
-// and if the query succeeds we print those vars.
-//
-// Evaluation is pretty much CPS because this allows failure to be encoded simply: the
-// eventual continuation prints the variables of the query, but when made to fail we just
-// backtrack into the recursion.
-
-// The name does not need to be here, it can be stored externally in a R/O structure,
-// and basically just for queries - normal ribs don't need it at all, except for
-// debugging, and in that case it can be reconstructed from the rule.
-
-// It would be incredibly sweet for this to be just one pointer.  But this just introduces
-// complexity.  For now, we want the zero value to be meaningful.  So perhaps define
-// that the variable is unbound or forwarding if val is nil; it is unbound and the end
-// of a chain if uvar is nil too.
-//
-// Ergo the test always starts with testing val; if it is nil, this is a variable to be
-// resolved further.
-//
-// With this fix, a zero variable is a meaningful variable and needs no initializer,
-// which means make([]variable, n) is totally fine.
-//
-// At the same time, I said that a term would be represented using indices into a rib for
-// the variables...  not pointers...
-//
-// So execution resolves from an index into a *variable and after that it's *variable all
-// the way down.  The index is just so that we don't need to reconstruct a term every time
-// we enter a rule, the term representation is immutable.
-
-// To apply a query Q = (f t_1 .. t_n) to a ruleset is to
-//  - select from the ruleset the rules R whose functor and arity match f and n
-//  - if R is empty then fail
-//  - for each rule S in R in order
-//    - create a copy C of S with fresh variables where S has variables
-//    - try to unify the head of C with Q
-//    - if unification succeeds,
-//       - for each structure B in the body of S in order,
-//         - apply the query B to the ruleset
-//       - if any application fails, then fail, otherwise succeed.
