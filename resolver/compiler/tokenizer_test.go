@@ -5,13 +5,14 @@ import (
 	"testing"
 )
 
-var input string = `
+// Note blank line at the beginning
+var input string = `  
 /* kongerekka. */
-:- father(haakon, olav).
+:- father(haakon  , olav).
 
 ?- father(X, harald).
 
-grandfather(X, Y) :- father(X, Z), father(Z, Y).
+grandfather(X,Y) :- father (X, Z ), father(Z, Y).
 
 :- n(1367).
 `
@@ -68,4 +69,7 @@ func TestTokenizer(t *testing.T) {
 	checkToken(t, tok, token{t_rparen, 0, ""})
 	checkToken(t, tok, token{t_period, 0, ""})
 	checkToken(t, tok, token{t_eof, 0, ""})
+	if tok.lineno != 10 {
+		t.Fatalf("Line numbers are off.  Got %v, expected %v", tok.lineno, 10)
+	}
 }
