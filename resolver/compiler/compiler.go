@@ -49,7 +49,7 @@ func (t *tokenizer) peekChar() rune {
 		return -1
 	}
 	if err != nil {
-		panic("Bad input")
+		panic(fmt.Sprintf("Line %d: Bad input: "+err.Error(), t.lineno))
 	}
 	t.input.UnreadRune()
 	return r
@@ -61,12 +61,13 @@ func (t *tokenizer) getChar() rune {
 		return -1
 	}
 	if err != nil {
-		panic("Bad input")
+		panic(fmt.Sprintf("Line %d: Bad input: "+err.Error(), t.lineno))
 	}
 	return r
 }
 
 func (t *tokenizer) next() token {
+outer:
 	for {
 		r := t.getChar()
 		if r == -1 {
@@ -78,6 +79,22 @@ func (t *tokenizer) next() token {
 		if r == '\n' {
 			t.lineno++
 			continue
+		}
+		if r == '/' && t.peekChar() == '*' {
+			t.getChar()
+			for {
+				r := t.getChar()
+				if r == -1 {
+					panic(fmt.Sprintf("Line %d: EOF in comment", t.lineno))
+				}
+				if r == '*' && t.peekChar() == '/' {
+					t.getChar()
+					continue outer
+				}
+				if r == '\n' {
+					t.lineno++
+				}
+			}
 		}
 		if r == '(' {
 			return token{t_lparen, t.lineno, ""}

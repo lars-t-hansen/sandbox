@@ -23,13 +23,13 @@ func main() {
 	st.AssertFact(father, harald, krompen)
 	st.AssertFact(father, krompen, prinsessa)
 
-	// ?- father(X, harald)
+	// ?- father(X, harald).
 
 	names, locals := st.Vars("X")
 	query := st.QueryTerm(st.Struct(father, harald, locals[0]))
 	st.EvaluateQuery(query, names)
 
-	// grandfather(X, Y) :- father(X, Z), father(Z, Y)
+	// grandfather(X, Y) :- father(X, Z), father(Z, Y).
 
 	grandfather := st.Symbol("grandfather")
 	_, locals = st.Vars("X", "Y", "Z")
@@ -40,7 +40,7 @@ func main() {
 		st.Struct(father, locals[0], locals[2]),
 		st.Struct(father, locals[2], locals[1]))
 
-	// ?- grandfather(harald, X)
+	// ?- grandfather(harald, X).
 
 	names, locals = st.Vars("X")
 	query = st.QueryTerm(st.Struct(grandfather, harald, locals[0]))
