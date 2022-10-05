@@ -12,12 +12,12 @@ func main() {
 	// :- father(harald, 'håkon magnus').
 	// :- father('håkon magnus', 'ingrid alexandra').
 
-	father := st.Intern("father")
-	haakon := st.Intern("haakon")
-	olav := st.Intern("olav")
-	harald := st.Intern("harald")
-	krompen := st.Intern("håkon magnus")
-	prinsessa := st.Intern("ingrid alexandra")
+	father := st.Symbol("father")
+	haakon := st.Symbol("haakon")
+	olav := st.Symbol("olav")
+	harald := st.Symbol("harald")
+	krompen := st.Symbol("håkon magnus")
+	prinsessa := st.Symbol("ingrid alexandra")
 	st.AssertFact(father, haakon, olav)
 	st.AssertFact(father, olav, harald)
 	st.AssertFact(father, harald, krompen)
@@ -31,7 +31,7 @@ func main() {
 
 	// grandfather(X, Y) :- father(X, Z), father(Z, Y)
 
-	grandfather := st.Intern("grandfather")
+	grandfather := st.Symbol("grandfather")
 	_, locals = st.Vars("X", "Y", "Z")
 	st.AssertRule(
 		locals,

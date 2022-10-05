@@ -15,6 +15,12 @@
 // slot for X.  (An alternative is that the rule for f is cloned every time it is
 // invoked and fresh variables are created and referenced from the clone.)
 
+// TODO:
+// - the obvious first step is to insert an explicit failure continuation
+// - another obvious step is to introduce "cut", possibly "fail"
+// - the continuations can later be reified and the engine recoded as a state machine with
+//   explicit data structures
+
 package engine
 
 import (
@@ -46,13 +52,17 @@ func NewStore() *store {
 	}
 }
 
-func (st *store) Intern(name string) *atom {
+func (st *store) Symbol(name string) *atom {
 	if v, ok := st.atoms[name]; ok {
 		return v
 	}
 	v := &atom{name: name}
 	st.atoms[name] = v
 	return v
+}
+
+func (st *store) Number(num int64) *number {
+	return &number{value: num}
 }
 
 func (st *store) assert(r *rule) {
@@ -344,38 +354,38 @@ func unify(val1 valueTerm, val2 valueTerm, onSuccess func() bool) bool {
 	return false
 }
 
-func unify_terms(s1 []valueTerm, s2 []valueTerm, k func() bool) bool {
+func unify_terms(s1 []valueTerm, s2 []valueTerm, onSuccess func() bool) bool {
 	if len(s1) == 0 {
-		return k()
+		return onSuccess()
 	}
-	return unify(s1[0], s2[0], func() bool {
-		return unify_terms(s1[1:], s2[1:], k)
+	return unify(s1[0], s2[0], func /* onSuccess */ () bool {
+		return unify_terms(s1[1:], s2[1:], onSuccess)
 	})
 }
 
-func (st *store) evaluateConjunct(e rib, ts []ruleTerm, k func() bool) bool {
+func (st *store) evaluateConjunct(e rib, ts []ruleTerm, onSuccess func() bool) bool {
 	if len(ts) == 0 {
-		return k()
+		return onSuccess()
 	}
 	switch t := ts[0].(type) {
 	case *number, *atom, *local:
-		return k()
+		return onSuccess()
 	case *unboundStruct:
 		candidates := st.lookup(t.functor, len(t.subterms))
-		return st.evaluateDisjunct(bind_terms(t.subterms, e), candidates, func() bool {
-			return st.evaluateConjunct(e, ts[1:], k)
+		return st.evaluateDisjunct(bind_terms(t.subterms, e), candidates, func /* onSuccess */ () bool {
+			return st.evaluateConjunct(e, ts[1:], onSuccess)
 		})
 	default:
 		panic(fmt.Sprintf("No such structure %v", t))
 	}
 }
 
-func (st *store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, k func() bool) bool {
+func (st *store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, onSuccess func() bool) bool {
 	for _, r := range disjuncts {
 		ASSERT(len(actuals) == r.arity)
 		newRib := make(rib, r.locals)
-		res := unify_terms(actuals, bind_terms(r.formals, newRib), func() bool {
-			return st.evaluateConjunct(newRib, r.body, k)
+		res := unify_terms(actuals, bind_terms(r.formals, newRib), func /* onSuccess */ () bool {
+			return st.evaluateConjunct(newRib, r.body, onSuccess)
 		})
 		if res {
 			return true
@@ -386,7 +396,7 @@ func (st *store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, k func
 
 func (st *store) EvaluateQuery(query []ruleTerm, names []*atom) {
 	vars := make(rib, len(names))
-	result := st.evaluateConjunct(vars, query, func() bool {
+	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
 		for i, n := range names {
 			os.Stdout.WriteString(n.name + "=" + vars[i].String() + "\n")
 		}
@@ -413,7 +423,7 @@ func (st *store) Vars(names ...string) ([]*atom, []*local) {
 	as := make([]*atom, len(names))
 	ls := make([]*local, len(names))
 	for i, name := range names {
-		as[i] = st.Intern(name)
+		as[i] = st.Symbol(name)
 		ls[i] = &local{i}
 	}
 	return as, ls
