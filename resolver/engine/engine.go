@@ -37,7 +37,7 @@ func ASSERT(b bool) {
 
 // Global background state for evaluation
 
-type store struct {
+type Store struct {
 	// Interned atoms.
 	atoms map[string]*atom
 
@@ -45,14 +45,14 @@ type store struct {
 	rules map[*atom]map[int][]*rule
 }
 
-func NewStore() *store {
-	return &store{
+func NewStore() *Store {
+	return &Store{
 		atoms: make(map[string]*atom),
 		rules: make(map[*atom]map[int][]*rule),
 	}
 }
 
-func (st *store) Symbol(name string) *atom {
+func (st *Store) Symbol(name string) *atom {
 	if v, ok := st.atoms[name]; ok {
 		return v
 	}
@@ -61,11 +61,11 @@ func (st *store) Symbol(name string) *atom {
 	return v
 }
 
-func (st *store) Number(num int64) *number {
+func (st *Store) Number(num int64) *number {
 	return &number{value: num}
 }
 
-func (st *store) assert(r *rule) {
+func (st *Store) assert(r *rule) {
 	functorMap, ok := st.rules[r.functor]
 	if !ok {
 		functorMap = make(map[int][]*rule)
@@ -78,7 +78,7 @@ func (st *store) assert(r *rule) {
 	functorMap[r.arity] = append(aritySlice, r)
 }
 
-func (st *store) lookup(functor *atom, arity int) []*rule {
+func (st *Store) lookup(functor *atom, arity int) []*rule {
 	functorMap, ok := st.rules[functor]
 	if !ok {
 		return []*rule{}
@@ -363,7 +363,7 @@ func unify_terms(s1 []valueTerm, s2 []valueTerm, onSuccess func() bool) bool {
 	})
 }
 
-func (st *store) evaluateConjunct(e rib, ts []ruleTerm, onSuccess func() bool) bool {
+func (st *Store) evaluateConjunct(e rib, ts []ruleTerm, onSuccess func() bool) bool {
 	if len(ts) == 0 {
 		return onSuccess()
 	}
@@ -380,7 +380,7 @@ func (st *store) evaluateConjunct(e rib, ts []ruleTerm, onSuccess func() bool) b
 	}
 }
 
-func (st *store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, onSuccess func() bool) bool {
+func (st *Store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, onSuccess func() bool) bool {
 	for _, r := range disjuncts {
 		ASSERT(len(actuals) == r.arity)
 		newRib := make(rib, r.locals)
@@ -394,7 +394,7 @@ func (st *store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, onSucc
 	return false
 }
 
-func (st *store) EvaluateQuery(query []ruleTerm, names []*atom) {
+func (st *Store) EvaluateQuery(query []ruleTerm, names []*atom) {
 	vars := make(rib, len(names))
 	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
 		for i, n := range names {
@@ -411,15 +411,15 @@ func (st *store) EvaluateQuery(query []ruleTerm, names []*atom) {
 
 // Convenience functions
 
-func (st *store) AssertFact(functor *atom, subterms ...ruleTerm) {
+func (st *Store) AssertFact(functor *atom, subterms ...ruleTerm) {
 	st.assert(&rule{0, len(subterms), functor, subterms, []ruleTerm{}})
 }
 
-func (st *store) AssertRule(locals []*local, head *unboundStruct, subterms ...ruleTerm) {
+func (st *Store) AssertRule(locals []*local, head *unboundStruct, subterms ...ruleTerm) {
 	st.assert(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
 }
 
-func (st *store) Vars(names ...string) ([]*atom, []*local) {
+func (st *Store) Vars(names ...string) ([]*atom, []*local) {
 	as := make([]*atom, len(names))
 	ls := make([]*local, len(names))
 	for i, name := range names {
@@ -429,10 +429,10 @@ func (st *store) Vars(names ...string) ([]*atom, []*local) {
 	return as, ls
 }
 
-func (st *store) QueryTerm(terms ...ruleTerm) []ruleTerm {
+func (st *Store) QueryTerm(terms ...ruleTerm) []ruleTerm {
 	return terms
 }
 
-func (st *store) Struct(functor *atom, subterms ...ruleTerm) *unboundStruct {
+func (st *Store) Struct(functor *atom, subterms ...ruleTerm) *unboundStruct {
 	return &unboundStruct{functor, subterms}
 }
