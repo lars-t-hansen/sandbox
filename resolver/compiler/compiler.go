@@ -466,6 +466,7 @@ func (f *astRule) line() int {
 //   *astFact
 //   *astRule
 //   *astQuery
+//   nil
 // }
 
 type astPhrase interface {
