@@ -213,28 +213,15 @@ type tokenizer2 struct {
 	// Line number at start of previous token returned
 	lineno int
 
-	// The rest of this is parser context, see parser code further down.  Sticking parser
-	// context on yylex is how the cool kids do it, but it's really not pretty.
-
-	// Next index for a variable in the clause
-	varIndex int
-
-	// All unique variables in the current clause.
-	vars []*astVar
-
-	nameMap map[string]int
-
-	// Set to the slice of phrases when the parse succeeds
-	result []astPhrase
+	// The rest of this is parser context, see parser code further down.
+	ctx *parserctx
 }
 
-func newTokenizer2(r reader) *tokenizer2 {
+func newTokenizer2(r reader, ctx *parserctx) *tokenizer2 {
 	return &tokenizer2{
-		input:    r,
-		lineno:   0,
-		varIndex: 0,
-		vars:     make([]*astVar, 0),
-		nameMap:  make(map[string]int, 0),
+		input:  r,
+		lineno: 0,
+		ctx:    ctx,
 	}
 }
 
@@ -395,25 +382,46 @@ func isAtomNextChar(r rune) bool {
 // An alternative here would be to pass in a callback and for the grammar to act on each phrase
 // as it is encountered.  That might also play a little better in an interactive system.
 
+// Sticking parser context on yylex is how the cool kids do it, but it's really not pretty.
+
+type parserctx struct {
+	// Next index for a variable in the clause
+	varIndex int
+
+	// All unique variables in the current clause.
+	vars []*astVar
+
+	nameMap map[string]int
+
+	// Set to the slice of phrases when the parse succeeds
+	result []astPhrase
+}
+
 func parsePhrases(r reader) []astPhrase {
-	t := newTokenizer2(r)
+	ctx := &parserctx{
+		varIndex: 0,
+		vars:     make([]*astVar, 0),
+		nameMap:  make(map[string]int, 0),
+	}
+	t := newTokenizer2(r, ctx)
 	if yyParse(t) == 0 {
-		return t.result
+		return ctx.result
 	}
 	panic("Parse failed")
 }
 
 func setResult(l yyLexer, r []astPhrase) {
-	l.(*tokenizer2).result = r
+	l.(*tokenizer2).ctx.result = r
 }
 
 func newVariable(l yyLexer, name string) *astVar {
-	p := l.(*tokenizer2)
+	t := l.(*tokenizer2)
+	p := t.ctx
 	if name == "_" {
 		// Fresh anonymous variable
 		index := p.varIndex
 		p.varIndex++
-		v := &astVar{p.lineno, name, index}
+		v := &astVar{t.lineno, name, index}
 		p.vars = append(p.vars, v)
 		return v
 	}
@@ -421,25 +429,25 @@ func newVariable(l yyLexer, name string) *astVar {
 	index, found := p.nameMap[name]
 	if found {
 		// Previously seen variable
-		return &astVar{p.lineno, name, index}
+		return &astVar{t.lineno, name, index}
 	}
 
 	// Fresh named variable
 	index = p.varIndex
 	p.varIndex++
 	p.nameMap[name] = index
-	v := &astVar{p.lineno, name, index}
+	v := &astVar{t.lineno, name, index}
 	p.vars = append(p.vars, v)
 	return v
 }
 
 func getVars(l yyLexer) []*astVar {
-	t := l.(*tokenizer2)
-	vs := t.vars
-	t.varIndex = 0
-	t.vars = t.vars[0:0]
-	for k := range t.nameMap {
-		delete(t.nameMap, k)
+	p := l.(*tokenizer2).ctx
+	vs := p.vars
+	p.varIndex = 0
+	p.vars = p.vars[0:0]
+	for k := range p.nameMap {
+		delete(p.nameMap, k)
 	}
 	return vs
 }
