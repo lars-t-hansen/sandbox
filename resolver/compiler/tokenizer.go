@@ -4,6 +4,7 @@
 
 package compiler
 
+/*
 import (
 	"fmt"
 	"io"
@@ -191,3 +192,4 @@ func isVarFirstChar(r rune) bool {
 func isAtomNextChar(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '_' || r >= '0' && r <= '9'
 }
+*/

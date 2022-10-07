@@ -19,35 +19,39 @@ grandfather(X,Y) :- father (X, Z ), father(Z, Y).
 `
 
 func TestParser(t *testing.T) {
-	tok := newTokenizer(strings.NewReader(parser_input))
-	p := newParser(tok)
-	item := p.parsePhrase()
+	items := parsePhrases(strings.NewReader(parser_input))
+	k := 0
+	item := items[k]
+	k++
 	_, ok := item.(*astFact)
 	if !ok {
 		t.Fatalf("Not a fact %v", item)
 	}
-	item = p.parsePhrase()
+	item = items[k]
+	k++
 	_, ok = item.(*astFact)
 	if !ok {
 		t.Fatalf("Not a fact %v", item)
 	}
-	item = p.parsePhrase()
+	item = items[k]
+	k++
 	_, ok = item.(*astQuery)
 	if !ok {
 		t.Fatalf("Not a query %v", item)
 	}
-	item = p.parsePhrase()
+	item = items[k]
+	k++
 	_, ok = item.(*astRule)
 	if !ok {
 		t.Fatalf("Not a rule %v", item)
 	}
-	item = p.parsePhrase()
+	item = items[k]
+	k++
 	_, ok = item.(*astFact)
 	if !ok {
 		t.Fatalf("Not a fact %v", item)
 	}
-	item = p.parsePhrase()
-	if item != nil {
+	if k != len(items) {
 		t.Fatalf("Unexpected non-EOF %v", item)
 	}
 }

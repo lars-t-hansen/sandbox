@@ -19,9 +19,9 @@
 
 package compiler
 
+/*
 import (
 	"fmt"
-	"strconv"
 )
 
 type parser struct {
@@ -81,13 +81,13 @@ func (p *parser) eatX(kind tkind) (bool, string) {
 	}
 	return false, ""
 }
-
+*/
 // A new astVar is created for each occurrence of a given variable, but the index
 // is shared among all the instances of astVar for a given name (except "_").
 //
 // In the parser, the `names` list has the first instance of an astVar for a given
 // index value.
-
+/*
 type astVar struct {
 	lineno int
 	name   string
@@ -148,19 +148,18 @@ func (n *astStruct) String() string {
 func (n *astStruct) line() int {
 	return n.lineno
 }
-
+*/
 // type astTerm union {
 //   *astAtom
 //   *astNumber
 //   *astStruct
 //   *astVar
 // }
-
+/*
 type astTerm interface {
 	fmt.Stringer
 	line() int
 }
-
 func (p *parser) parseTerm0() astTerm {
 	t := p.get()
 	switch t.kind {
@@ -224,55 +223,56 @@ func (p *parser) parseTerms() []astTerm {
 	return ts
 }
 
-func termsToString(ts []astTerm) string {
-	s := ""
-	for _, term := range ts {
-		if s != "" {
-			s = s + ", "
+/*
+	func termsToString(ts []astTerm) string {
+		s := ""
+		for _, term := range ts {
+			if s != "" {
+				s = s + ", "
+			}
+			s = s + term.String()
 		}
-		s = s + term.String()
+		return s
 	}
-	return s
-}
 
-type astQuery struct {
-	vars []*astVar
-	body []astTerm
-}
+	type astQuery struct {
+		vars []*astVar
+		body []astTerm
+	}
 
-func (f *astQuery) String() string {
-	return "?- " + termsToString(f.body) + "."
-}
+	func (f *astQuery) String() string {
+		return "?- " + termsToString(f.body) + "."
+	}
 
-func (f *astQuery) line() int {
-	return f.body[0].line()
-}
+	func (f *astQuery) line() int {
+		return f.body[0].line()
+	}
 
-type astFact struct {
-	head astTerm
-}
+	type astFact struct {
+		head astTerm
+	}
 
-func (f *astFact) String() string {
-	return ":-" + f.head.String() + "."
-}
+	func (f *astFact) String() string {
+		return ":-" + f.head.String() + "."
+	}
 
-func (f *astFact) line() int {
-	return f.head.line()
-}
+	func (f *astFact) line() int {
+		return f.head.line()
+	}
 
-type astRule struct {
-	vars []*astVar
-	head astTerm
-	body []astTerm
-}
+	type astRule struct {
+		vars []*astVar
+		head astTerm
+		body []astTerm
+	}
 
-func (f *astRule) String() string {
-	return f.head.String() + " :- " + termsToString(f.body) + "."
-}
+	func (f *astRule) String() string {
+		return f.head.String() + " :- " + termsToString(f.body) + "."
+	}
 
-func (f *astRule) line() int {
-	return f.head.line()
-}
+	func (f *astRule) line() int {
+		return f.head.line()
+	}
 
 // type astPhrase union {
 //   *astFact
@@ -281,32 +281,36 @@ func (f *astRule) line() int {
 //   nil
 // }
 
-type astPhrase interface {
-	fmt.Stringer
-	line() int
-}
+	type astPhrase interface {
+		fmt.Stringer
+		line() int
+	}
 
-func (p *parser) parsePhrase() astPhrase {
-	p.clear()
-	if p.eat(t_eof, "") {
-		return nil
-	}
-	if p.eat(t_infix, ":-") {
-		head := p.parseTerm0()
-		p.match(t_period, "")
-		if len(p.names) != 0 {
-			panic(fmt.Sprintf("Line %d: Fact should not have variables: %v", head.line(), head))
+	func (p *parser) parsePhrase() astPhrase {
+		p.clear()
+		if p.eat(t_eof, "") {
+			return nil
 		}
-		return &astFact{head}
-	}
-	if p.eat(t_infix, "?-") {
-		query := p.parseTerms()
+		if p.eat(t_infix, ":-") {
+			head := p.parseTerm0()
+			p.match(t_period, "")
+			if len(p.names) != 0 {
+				panic(fmt.Sprintf("Line %d: Fact should not have variables: %v", head.line(), head))
+			}
+			return &astFact{head}
+		}
+		if p.eat(t_infix, "?-") {
+			query := p.parseTerms()
+			p.match(t_period, "")
+			return &astQuery{p.names, query}
+		}
+		head := p.parseTerm0()
+		p.match(t_infix, ":-")
+		body := p.parseTerms()
 		p.match(t_period, "")
-		return &astQuery{p.names, query}
+		return &astRule{p.names, head, body}
 	}
-	head := p.parseTerm0()
-	p.match(t_infix, ":-")
-	body := p.parseTerms()
-	p.match(t_period, "")
-	return &astRule{p.names, head, body}
+func (p *parser) parsePhrase() astPhrase {
+	panic("Hi")
 }
+*/
