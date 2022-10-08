@@ -76,8 +76,11 @@ type astPhrase interface {
 
 //line parser.y:72
 type yySymType struct {
-	yys     int
-	name    string
+	yys  int
+	name struct {
+		text string
+		line int
+	}
 	terms   []astTerm
 	term    astTerm
 	phrases []astPhrase
@@ -117,7 +120,7 @@ const yyEofCode = 1
 const yyErrCode = 2
 const yyInitialStackSize = 16
 
-//line parser.y:169
+//line parser.y:172
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -206,40 +209,38 @@ type reader interface {
 	UnreadRune() error
 }
 
-type tokenizer2 struct {
+type tokenizer struct {
 	// Input characters
 	input reader
 
-	// Line number at start of previous token returned
+	// Line number at start of next character in the input.  Private to lexer,
+	// tokens carry their own line numbers.
 	lineno int
 
 	// The rest of this is parser context, see parser code further down.
 	ctx *parserctx
 }
 
-func newTokenizer2(r reader, ctx *parserctx) *tokenizer2 {
-	return &tokenizer2{
+func newtokenizer(r reader, ctx *parserctx) *tokenizer {
+	return &tokenizer{
 		input:  r,
 		lineno: 0,
 		ctx:    ctx,
 	}
 }
 
-func (l *tokenizer2) Lex(lval *yySymType) int {
-	t, name := l.get()
-	lval.name = name
-	return t
+func (l *tokenizer) Lex(lval *yySymType) (t int) {
+	t, lval.name.text, lval.name.line = l.get()
+	return
 }
 
-func (l *tokenizer2) Error(s string) {
+func (l *tokenizer) Error(s string) {
+	// TODO: Line number for the error, although sometimes that comes in with the
+	// message too?
 	panic(s)
 }
 
-func lineno(l yyLexer) int {
-	return l.(*tokenizer2).lineno
-}
-
-func (t *tokenizer2) peekChar() rune {
+func (t *tokenizer) peekChar() rune {
 	r, _, err := t.input.ReadRune()
 	if err == io.EOF {
 		return -1
@@ -251,7 +252,7 @@ func (t *tokenizer2) peekChar() rune {
 	return r
 }
 
-func (t *tokenizer2) getChar() rune {
+func (t *tokenizer) getChar() rune {
 	r, _, err := t.input.ReadRune()
 	if err == io.EOF {
 		return -1
@@ -262,16 +263,18 @@ func (t *tokenizer2) getChar() rune {
 	return r
 }
 
-func (t *tokenizer2) get() (int, string) {
+func (t *tokenizer) get() (tokval int, name string, lineno int) {
 outer:
 	for {
 		r := t.getChar()
 		if r == -1 {
-			return -1, ""
+			tokval, lineno = -1, t.lineno
+			return
 		}
 		if r == '\t' || r == ' ' {
 			continue
 		}
+		// TODO: \r and other line breaks
 		if r == '\n' {
 			t.lineno++
 			continue
@@ -293,62 +296,85 @@ outer:
 			}
 		}
 		if r == '(' {
-			return T_LPAREN, ""
+			tokval, lineno = T_LPAREN, t.lineno
+			return
+			return
 		}
 		if r == ')' {
-			return T_RPAREN, ""
+			tokval, lineno = T_RPAREN, t.lineno
+			return
 		}
 		if r == '.' {
-			return T_PERIOD, ""
+			tokval, lineno = T_PERIOD, t.lineno
+			return
 		}
 		if r == ',' {
-			return T_COMMA, ""
+			tokval, lineno = T_COMMA, t.lineno
+			return
 		}
 		if r == '-' {
+			lineno = t.lineno
 			if isDigitChar(t.peekChar()) {
-				return T_NUMBER, t.lexWhile(isDigitChar, "-")
+				name = t.lexWhile(isDigitChar, "-")
+				tokval = T_NUMBER
+				return
 			}
 		}
 		if r == '\'' {
-			name := t.lexWhile(func(r rune) bool {
+			lineno = t.lineno
+			name = t.lexWhile(func(r rune) bool {
 				return r != -1 && r != '\'' && r != '\n' && r != '\r'
 			}, "")
 			if t.getChar() != '\'' {
 				panic(fmt.Sprintf("Line %d: unterminated quoted atom", t.lineno))
 			}
-			return T_ATOM, name
+			tokval = T_ATOM
+			return
 		}
 		if isOperatorChar(r) {
-			name := t.lexWhile(isOperatorChar, string(r))
+			lineno = t.lineno
+			name = t.lexWhile(isOperatorChar, string(r))
 			if name == "?-" {
-				return T_QUERY_OP, ""
+				tokval = T_QUERY_OP
+				return
 			}
 			if name == ":-" {
-				return T_FACT_OP, ""
+				tokval = T_FACT_OP
+				return
 			}
-			return T_INFIX_OP, name
+			tokval = T_INFIX_OP
+			return
 		}
 		if isDigitChar(r) {
-			return T_NUMBER, t.lexWhile(isDigitChar, string(r))
+			lineno = t.lineno
+			name = t.lexWhile(isDigitChar, string(r))
+			tokval = T_NUMBER
+			return
 		}
 		if isVarFirstChar(r) {
-			return T_VARNAME, t.lexWhile(isAtomNextChar, string(r))
+			lineno = t.lineno
+			name = t.lexWhile(isAtomNextChar, string(r))
+			tokval = T_VARNAME
+			return
 		}
 		if isAtomFirstChar(r) {
+			lineno = t.lineno
+			name = t.lexWhile(isAtomNextChar, string(r))
 			// TODO: This strikes me as a hack, there should be a more principled solution
 			// to this somewhere.
-			name := t.lexWhile(isAtomNextChar, string(r))
 			if name == "is" {
-				return T_INFIX_OP, name
+				tokval = T_INFIX_OP
+			} else {
+				tokval = T_ATOM
 			}
-			return T_ATOM, name
+			return
 		}
 		panic(fmt.Sprintf("Line %d: bad character: %v", t.lineno, r))
 	}
 }
 
 // This depends on isChar() being false for -1 and newlines
-func (t *tokenizer2) lexWhile(isChar func(r rune) bool, s string) string {
+func (t *tokenizer) lexWhile(isChar func(r rune) bool, s string) string {
 	for isChar(t.peekChar()) {
 		s = s + string(t.getChar())
 	}
@@ -403,7 +429,7 @@ func parsePhrases(r reader) []astPhrase {
 		vars:     make([]*astVar, 0),
 		nameMap:  make(map[string]int, 0),
 	}
-	t := newTokenizer2(r, ctx)
+	t := newtokenizer(r, ctx)
 	if yyParse(t) == 0 {
 		return ctx.result
 	}
@@ -411,17 +437,16 @@ func parsePhrases(r reader) []astPhrase {
 }
 
 func setResult(l yyLexer, r []astPhrase) {
-	l.(*tokenizer2).ctx.result = r
+	l.(*tokenizer).ctx.result = r
 }
 
-func newVariable(l yyLexer, name string) *astVar {
-	t := l.(*tokenizer2)
-	p := t.ctx
+func newVariable(l yyLexer, name string, line int) *astVar {
+	p := l.(*tokenizer).ctx
 	if name == "_" {
 		// Fresh anonymous variable
 		index := p.varIndex
 		p.varIndex++
-		v := &astVar{t.lineno, name, index}
+		v := &astVar{line, name, index}
 		p.vars = append(p.vars, v)
 		return v
 	}
@@ -429,20 +454,20 @@ func newVariable(l yyLexer, name string) *astVar {
 	index, found := p.nameMap[name]
 	if found {
 		// Previously seen variable
-		return &astVar{t.lineno, name, index}
+		return &astVar{line, name, index}
 	}
 
 	// Fresh named variable
 	index = p.varIndex
 	p.varIndex++
 	p.nameMap[name] = index
-	v := &astVar{t.lineno, name, index}
+	v := &astVar{line, name, index}
 	p.vars = append(p.vars, v)
 	return v
 }
 
 func getVars(l yyLexer) []*astVar {
-	p := l.(*tokenizer2).ctx
+	p := l.(*tokenizer).ctx
 	vs := p.vars
 	p.varIndex = 0
 	p.vars = p.vars[0:0]
@@ -860,25 +885,25 @@ yydefault:
 
 	case 1:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:95
+//line parser.y:98
 		{
 			setResult(yylex, yyDollar[1].phrases)
 		}
 	case 2:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line parser.y:100
+//line parser.y:103
 		{
 			yyVAL.phrases = []astPhrase{}
 		}
 	case 3:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line parser.y:104
+//line parser.y:107
 		{
 			yyVAL.phrases = append(yyDollar[1].phrases, yyDollar[2].phrase)
 		}
 	case 7:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:110
+//line parser.y:113
 		{
 			vars := getVars(yylex)
 			if len(vars) != 0 {
@@ -889,62 +914,62 @@ yydefault:
 		}
 	case 8:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:120
+//line parser.y:123
 		{
 			yyVAL.phrase = &astQuery{getVars(yylex), yyDollar[2].terms}
 		}
 	case 9:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line parser.y:125
+//line parser.y:128
 		{
 			yyVAL.phrase = &astRule{getVars(yylex), yyDollar[1].term, yyDollar[3].terms}
 		}
 	case 14:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:131
+//line parser.y:134
 		{
 			yyVAL.terms = []astTerm{yyDollar[1].term}
 		}
 	case 15:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:135
+//line parser.y:138
 		{
 			yyVAL.terms = append(yyDollar[1].terms, yyDollar[3].term)
 		}
 	case 16:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line parser.y:140
+//line parser.y:143
 		{
-			yyVAL.term = &astStruct{lineno(yylex), yyDollar[1].name, yyDollar[3].terms}
+			yyVAL.term = &astStruct{yyDollar[1].name.line, yyDollar[1].name.text, yyDollar[3].terms}
 		}
 	case 17:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:144
+//line parser.y:147
 		{
-			yyVAL.term = &astStruct{lineno(yylex), yyDollar[2].name, []astTerm{yyDollar[1].term, yyDollar[3].term}}
+			yyVAL.term = &astStruct{yyDollar[1].term.line(), yyDollar[2].name.text, []astTerm{yyDollar[1].term, yyDollar[3].term}}
 		}
 	case 18:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:149
+//line parser.y:152
 		{
-			yyVAL.term = &astAtom{lineno(yylex), yyDollar[1].name}
+			yyVAL.term = &astAtom{yyDollar[1].name.line, yyDollar[1].name.text}
 		}
 	case 19:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:154
+//line parser.y:157
 		{
-			val, err := strconv.ParseInt(yyDollar[1].name, 10, 64)
+			val, err := strconv.ParseInt(yyDollar[1].name.text, 10, 64)
 			if err != nil {
 				yylex.Error("numeric overflow")
 				// TODO: how to recover here?
 			}
-			yyVAL.term = &astNumber{lineno(yylex), val}
+			yyVAL.term = &astNumber{yyDollar[1].name.line, val}
 		}
 	case 20:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:164
+//line parser.y:167
 		{
-			yyVAL.term = newVariable(yylex, yyDollar[1].name)
+			yyVAL.term = newVariable(yylex, yyDollar[1].name.text, yyDollar[1].name.line)
 		}
 	}
 	goto yystack /* stack new state and value */

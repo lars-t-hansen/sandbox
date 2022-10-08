@@ -70,7 +70,10 @@ type astPhrase interface {
 %}
 
 %union { 
-    name string
+    name struct {
+		text string
+		line int
+	}
     terms []astTerm
     term astTerm
     phrases []astPhrase
@@ -138,31 +141,31 @@ Terms   : Term
         ;
 Struct  : T_ATOM T_LPAREN Terms T_RPAREN
             {
-                $$ = &astStruct{lineno(yylex), $1, $3}
+                $$ = &astStruct{$1.line, $1.text, $3}
             }
         | Term T_INFIX_OP Term
             {
-                $$ = &astStruct{lineno(yylex), $2, []astTerm{$1, $3}}
+                $$ = &astStruct{$1.line(), $2.text, []astTerm{$1, $3}}
             }
         ;
 Atom    : T_ATOM
             {
-                $$ = &astAtom{lineno(yylex), $1}
+                $$ = &astAtom{$1.line, $1.text}
             }
         ;
 Number  : T_NUMBER
             {
-                val, err := strconv.ParseInt($1, 10, 64)
+                val, err := strconv.ParseInt($1.text, 10, 64)
 				if err != nil {
 					yylex.Error("numeric overflow")
 					// TODO: how to recover here?
 				}
-                $$ = &astNumber{lineno(yylex), val}
+                $$ = &astNumber{$1.line, val}
             }
         ;
 Variable : T_VARNAME
             {
-				$$ = newVariable(yylex, $1)
+				$$ = newVariable(yylex, $1.text, $1.line)
             }
         ;
 
@@ -256,40 +259,38 @@ type reader interface {
 	UnreadRune() error
 }
 
-type tokenizer2 struct {
+type tokenizer struct {
 	// Input characters
 	input  reader
 
-	// Line number at start of previous token returned
+	// Line number at start of next character in the input.  Private to lexer,
+	// tokens and nonterminals carry their own line numbers.
 	lineno int
 
 	// The rest of this is parser context, see parser code further down.
 	ctx *parserctx
 }
 
-func newTokenizer2(r reader, ctx *parserctx) *tokenizer2 {
-    return &tokenizer2{
+func newtokenizer(r reader, ctx *parserctx) *tokenizer {
+    return &tokenizer{
 		input: r, 
 		lineno: 0,
 		ctx: ctx,
 	}
 }
 
-func (l *tokenizer2) Lex(lval *yySymType) int {
-	t, name := l.get()
-	lval.name = name
-	return t
+func (l *tokenizer) Lex(lval *yySymType) (t int) {
+	t, lval.name.text, lval.name.line = l.get()
+	return
 }
 
-func (l *tokenizer2) Error(s string) {
+func (l *tokenizer) Error(s string) {
+	// TODO: Line number for the error, although sometimes that comes in with the
+	// message too?
 	panic(s)
 }
 
-func lineno(l yyLexer) int {
-	return l.(*tokenizer2).lineno
-}
-
-func (t *tokenizer2) peekChar() rune {
+func (t *tokenizer) peekChar() rune {
 	r, _, err := t.input.ReadRune()
 	if err == io.EOF {
 		return -1
@@ -301,7 +302,7 @@ func (t *tokenizer2) peekChar() rune {
 	return r
 }
 
-func (t *tokenizer2) getChar() rune {
+func (t *tokenizer) getChar() rune {
 	r, _, err := t.input.ReadRune()
 	if err == io.EOF {
 		return -1
@@ -312,16 +313,18 @@ func (t *tokenizer2) getChar() rune {
 	return r
 }
 
-func (t *tokenizer2) get() (int, string) {
+func (t *tokenizer) get() (tokval int, name string, lineno int) {
 outer:
 	for {
 		r := t.getChar()
 		if r == -1 {
-			return -1, ""
+			tokval, lineno = -1, t.lineno
+			return
 		}
 		if r == '\t' || r == ' ' {
 			continue
 		}
+		// TODO: \r and other line breaks
 		if r == '\n' {
 			t.lineno++
 			continue
@@ -343,62 +346,85 @@ outer:
 			}
 		}
 		if r == '(' {
-			return T_LPAREN, ""
+			tokval, lineno = T_LPAREN, t.lineno
+			return
+			return
 		}
 		if r == ')' {
-			return T_RPAREN, ""
+			tokval, lineno = T_RPAREN, t.lineno
+			return
 		}
 		if r == '.' {
-			return T_PERIOD, ""
+			tokval, lineno = T_PERIOD, t.lineno
+			return
 		}
 		if r == ',' {
-			return T_COMMA, ""
+			tokval, lineno = T_COMMA, t.lineno
+			return
 		}
 		if r == '-' {
+			lineno = t.lineno
 			if isDigitChar(t.peekChar()) {
-				return T_NUMBER, t.lexWhile(isDigitChar, "-")
+				name = t.lexWhile(isDigitChar, "-")
+				tokval = T_NUMBER
+				return
 			}
 		}
 		if r == '\'' {
-			name := t.lexWhile(func(r rune) bool {
+			lineno = t.lineno
+			name = t.lexWhile(func(r rune) bool {
 				return r != -1 && r != '\'' && r != '\n' && r != '\r'
 			}, "")
 			if t.getChar() != '\'' {
 				panic(fmt.Sprintf("Line %d: unterminated quoted atom", t.lineno))
 			}
-			return T_ATOM, name
+			tokval = T_ATOM
+			return
 		}
 		if isOperatorChar(r) {
-            name := t.lexWhile(isOperatorChar, string(r))
+			lineno = t.lineno
+            name = t.lexWhile(isOperatorChar, string(r))
             if name == "?-" {
-                return T_QUERY_OP, ""
+                tokval = T_QUERY_OP
+				return
             }
             if name == ":-" {
-                return T_FACT_OP, ""
+                tokval = T_FACT_OP
+				return
             }
-			return T_INFIX_OP, name
+			tokval = T_INFIX_OP
+			return
 		}
 		if isDigitChar(r) {
-			return T_NUMBER, t.lexWhile(isDigitChar, string(r))
+			lineno = t.lineno
+			name = t.lexWhile(isDigitChar, string(r))
+			tokval = T_NUMBER
+			return
 		}
 		if isVarFirstChar(r) {
-			return T_VARNAME, t.lexWhile(isAtomNextChar, string(r))
+			lineno = t.lineno
+			name = t.lexWhile(isAtomNextChar, string(r))
+			tokval = T_VARNAME
+			return
 		}
 		if isAtomFirstChar(r) {
+			lineno = t.lineno
+			name = t.lexWhile(isAtomNextChar, string(r))
 			// TODO: This strikes me as a hack, there should be a more principled solution
 			// to this somewhere.
-			name := t.lexWhile(isAtomNextChar, string(r))
 			if name == "is" {
-				return T_INFIX_OP, name
+				tokval = T_INFIX_OP
+			} else {
+				tokval = T_ATOM
 			}
-			return T_ATOM, name
+			return
 		}
 		panic(fmt.Sprintf("Line %d: bad character: %v", t.lineno, r))
 	}
 }
 
 // This depends on isChar() being false for -1 and newlines
-func (t *tokenizer2) lexWhile(isChar func(r rune) bool, s string) string {
+func (t *tokenizer) lexWhile(isChar func(r rune) bool, s string) string {
 	for isChar(t.peekChar()) {
 		s = s + string(t.getChar())
 	}
@@ -453,7 +479,7 @@ func parsePhrases(r reader) []astPhrase {
 		vars: make([]*astVar, 0),
 		nameMap: make(map[string]int, 0),
 	}
-	t := newTokenizer2(r, ctx)
+	t := newtokenizer(r, ctx)
 	if yyParse(t) == 0 {
 		return ctx.result
 	}
@@ -461,17 +487,16 @@ func parsePhrases(r reader) []astPhrase {
 }
 
 func setResult(l yyLexer, r []astPhrase) {
-	l.(*tokenizer2).ctx.result = r
+	l.(*tokenizer).ctx.result = r
 }
 
-func newVariable(l yyLexer, name string) *astVar {
-	t := l.(*tokenizer2)
-	p := t.ctx
+func newVariable(l yyLexer, name string, line int) *astVar {
+	p := l.(*tokenizer).ctx
 	if name == "_" {
 		// Fresh anonymous variable
 		index := p.varIndex
 		p.varIndex++
-		v := &astVar{t.lineno, name, index}
+		v := &astVar{line, name, index}
 		p.vars = append(p.vars, v)
 		return v
 	}
@@ -479,20 +504,20 @@ func newVariable(l yyLexer, name string) *astVar {
 	index, found := p.nameMap[name]
 	if found {
 		// Previously seen variable
-		return &astVar{t.lineno, name, index}
+		return &astVar{line, name, index}
 	}
 
 	// Fresh named variable
 	index = p.varIndex
 	p.varIndex++
 	p.nameMap[name] = index
-	v := &astVar{t.lineno, name, index}
+	v := &astVar{line, name, index}
 	p.vars = append(p.vars, v)
 	return v
 }
 
 func getVars(l yyLexer) []*astVar {
-	p := l.(*tokenizer2).ctx
+	p := l.(*tokenizer).ctx
 	vs := p.vars
 	p.varIndex = 0
 	p.vars = p.vars[0:0]
