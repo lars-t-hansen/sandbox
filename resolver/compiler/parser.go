@@ -79,14 +79,17 @@ type parserctx struct {
 	vars []*engine.Local
 
 	nameMap map[string]int
+
+	writeString func(s string)
 }
 
-func newParser(st *engine.Store) *parserctx {
+func newParser(st *engine.Store, writeString func(string)) *parserctx {
 	return &parserctx{
-		st:       st,
-		varIndex: 0,
-		vars:     make([]*engine.Local, 0),
-		nameMap:  make(map[string]int, 0),
+		st:          st,
+		varIndex:    0,
+		vars:        make([]*engine.Local, 0),
+		nameMap:     make(map[string]int, 0),
+		writeString: writeString,
 	}
 }
 
@@ -136,7 +139,7 @@ func (p *parserctx) evalQuery(query []engine.RuleTerm) {
 		}
 	}
 	p.getAndClearVars()
-	p.st.EvaluateQuery(query, names)
+	p.st.EvaluateQuery(query, names, p.writeString)
 }
 
 func (p *parserctx) evalRule(head *engine.RuleStruct, body []engine.RuleTerm) {
@@ -155,8 +158,8 @@ func (p *parserctx) makeAtom(name string) *engine.Atom {
 	return p.st.NewAtom(name)
 }
 
-func Repl(st *engine.Store, r reader) {
-	ctx := newParser(st)
+func Repl(st *engine.Store, r reader, writeString func(string)) {
+	ctx := newParser(st, writeString)
 	t := newTokenizer(r, ctx)
 	if yyParse(t) != 0 {
 		panic("Parse failed")

@@ -25,7 +25,6 @@ package engine
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -410,17 +409,17 @@ func (st *Store) NewStruct(functor *Atom, subterms []RuleTerm) *RuleStruct {
 	return &RuleStruct{functor, subterms}
 }
 
-func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom) {
+func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom, writeString func(s string)) {
 	vars := make(rib, len(names))
 	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
 		for i, n := range names {
-			os.Stdout.WriteString(n.name + "=" + vars[i].String() + "\n")
+			writeString(n.name + "=" + vars[i].String() + "\n")
 		}
 		return true
 	})
 	if result {
-		os.Stdout.WriteString("yes\n")
+		writeString("yes\n")
 	} else {
-		os.Stdout.WriteString("no\n")
+		writeString("no\n")
 	}
 }
