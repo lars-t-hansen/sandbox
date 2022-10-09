@@ -1,4 +1,4 @@
-package compiler
+package repl
 
 //go:generate goyacc -o parser.go parser.y
 

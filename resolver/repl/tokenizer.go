@@ -1,4 +1,4 @@
-package compiler
+package repl
 
 import (
 	"fmt"
