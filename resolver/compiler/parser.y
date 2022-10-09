@@ -162,11 +162,11 @@ func (p *parserctx) evalFact(fact *engine.RuleStruct) {
 func (p *parserctx) evalQuery(query []engine.RuleTerm) {
 	names := make([]*engine.Atom, len(p.nameMap))
 	for k, v := range p.nameMap {
-		names[v] = p.st.Symbol(k)
+		names[v] = p.st.NewAtom(k)
 	}
 	for i, n := range names {
 		if n == nil {
-			names[i] = p.st.Symbol("_")
+			names[i] = p.st.NewAtom("_")
 		}
 	}
 	p.getAndClearVars()
@@ -178,15 +178,15 @@ func (p *parserctx) evalRule(head *engine.RuleStruct, body []engine.RuleTerm) {
 }
 
 func (p *parserctx) makeStruct(functor string, terms []engine.RuleTerm) *engine.RuleStruct {
-	return p.st.Struct(p.st.Symbol(functor), terms)
+	return p.st.NewStruct(p.st.NewAtom(functor), terms)
 }
 
 func (p *parserctx) makeNumber(n int64) *engine.Number {
-	return p.st.Number(n)
+	return p.st.NewNumber(n)
 }
 
 func (p *parserctx) makeAtom(name string) *engine.Atom {
-	return p.st.Symbol(name)
+	return p.st.NewAtom(name)
 }
 
 func Repl(st *engine.Store, r reader) {

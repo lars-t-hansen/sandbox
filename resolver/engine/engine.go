@@ -52,7 +52,7 @@ func NewStore() *Store {
 	}
 }
 
-func (st *Store) Symbol(name string) *Atom {
+func (st *Store) NewAtom(name string) *Atom {
 	if v, ok := st.atoms[name]; ok {
 		return v
 	}
@@ -61,7 +61,7 @@ func (st *Store) Symbol(name string) *Atom {
 	return v
 }
 
-func (st *Store) Number(num int64) *Number {
+func (st *Store) NewNumber(num int64) *Number {
 	return &Number{value: num}
 }
 
@@ -394,6 +394,22 @@ func (st *Store) evaluateDisjunct(actuals []ValueTerm, disjuncts []*rule, onSucc
 	return false
 }
 
+func (st *Store) AssertFact(fact *RuleStruct) {
+	st.assert(&rule{0, len(fact.subterms), fact.functor, fact.subterms, []RuleTerm{}})
+}
+
+func (st *Store) AssertRule(locals []*Local, head *RuleStruct, subterms []RuleTerm) {
+	st.assert(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
+}
+
+func (st *Store) NewLocal(index int) *Local {
+	return &Local{index}
+}
+
+func (st *Store) NewStruct(functor *Atom, subterms []RuleTerm) *RuleStruct {
+	return &RuleStruct{functor, subterms}
+}
+
 func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom) {
 	vars := make(rib, len(names))
 	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
@@ -407,32 +423,4 @@ func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom) {
 	} else {
 		os.Stdout.WriteString("no\n")
 	}
-}
-
-// Convenience functions
-
-func (st *Store) AssertFact(fact *RuleStruct) {
-	st.assert(&rule{0, len(fact.subterms), fact.functor, fact.subterms, []RuleTerm{}})
-}
-
-func (st *Store) AssertRule(locals []*Local, head *RuleStruct, subterms []RuleTerm) {
-	st.assert(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
-}
-
-func (st *Store) NewLocal(index int) *Local {
-	return &Local{index}
-}
-
-func (st *Store) Vars(names ...string) ([]*Atom, []*Local) {
-	as := make([]*Atom, len(names))
-	ls := make([]*Local, len(names))
-	for i, name := range names {
-		as[i] = st.Symbol(name)
-		ls[i] = &Local{i}
-	}
-	return as, ls
-}
-
-func (st *Store) Struct(functor *Atom, subterms []RuleTerm) *RuleStruct {
-	return &RuleStruct{functor, subterms}
 }

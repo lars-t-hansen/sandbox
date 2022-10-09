@@ -1,0 +1,302 @@
+
+state 0
+	$accept: .Program $end 
+	Phrases: .    (2)
+
+	.  reduce 2 (src line 33)
+
+	Program  goto 1
+	Phrases  goto 2
+
+state 1
+	$accept:  Program.$end 
+
+	$end  accept
+	.  error
+
+
+state 2
+	Program:  Phrases.    (1)
+	Phrases:  Phrases.Phrase 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	T_FACT_OP  shift 7
+	T_QUERY_OP  shift 9
+	.  reduce 1 (src line 32)
+
+	Term  goto 11
+	Struct  goto 8
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+	Phrase  goto 3
+	Fact  goto 4
+	Rule  goto 5
+	Query  goto 6
+
+state 3
+	Phrases:  Phrases Phrase.    (3)
+
+	.  reduce 3 (src line 33)
+
+
+state 4
+	Phrase:  Fact.    (4)
+
+	.  reduce 4 (src line 34)
+
+
+state 5
+	Phrase:  Rule.    (5)
+
+	.  reduce 5 (src line 34)
+
+
+state 6
+	Phrase:  Query.    (6)
+
+	.  reduce 6 (src line 34)
+
+
+state 7
+	Fact:  T_FACT_OP.Struct T_PERIOD 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	.  error
+
+	Term  goto 11
+	Struct  goto 17
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+
+state 8
+	Rule:  Struct.T_FACT_OP Terms T_PERIOD 
+	Term:  Struct.    (10)
+
+	T_FACT_OP  shift 18
+	.  reduce 10 (src line 54)
+
+
+state 9
+	Query:  T_QUERY_OP.Terms T_PERIOD 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	.  error
+
+	Terms  goto 19
+	Term  goto 20
+	Struct  goto 21
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+
+state 10
+	Struct:  T_ATOM.T_LPAREN Terms T_RPAREN 
+	Atom:  T_ATOM.    (18)
+
+	T_LPAREN  shift 22
+	.  reduce 18 (src line 73)
+
+
+state 11
+	Struct:  Term.T_INFIX_OP Term 
+
+	T_INFIX_OP  shift 23
+	.  error
+
+
+state 12
+	Term:  Atom.    (11)
+
+	.  reduce 11 (src line 54)
+
+
+state 13
+	Term:  Number.    (12)
+
+	.  reduce 12 (src line 54)
+
+
+state 14
+	Term:  Variable.    (13)
+
+	.  reduce 13 (src line 54)
+
+
+state 15
+	Number:  T_NUMBER.    (19)
+
+	.  reduce 19 (src line 78)
+
+
+state 16
+	Variable:  T_VARNAME.    (20)
+
+	.  reduce 20 (src line 88)
+
+
+state 17
+	Fact:  T_FACT_OP Struct.T_PERIOD 
+	Term:  Struct.    (10)
+
+	T_PERIOD  shift 24
+	.  reduce 10 (src line 54)
+
+
+state 18
+	Rule:  Struct T_FACT_OP.Terms T_PERIOD 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	.  error
+
+	Terms  goto 25
+	Term  goto 20
+	Struct  goto 21
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+
+state 19
+	Query:  T_QUERY_OP Terms.T_PERIOD 
+	Terms:  Terms.T_COMMA Term 
+
+	T_COMMA  shift 27
+	T_PERIOD  shift 26
+	.  error
+
+
+state 20
+	Terms:  Term.    (14)
+	Struct:  Term.T_INFIX_OP Term 
+
+	T_INFIX_OP  shift 23
+	.  reduce 14 (src line 55)
+
+
+state 21
+	Term:  Struct.    (10)
+
+	.  reduce 10 (src line 54)
+
+
+state 22
+	Struct:  T_ATOM T_LPAREN.Terms T_RPAREN 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	.  error
+
+	Terms  goto 28
+	Term  goto 20
+	Struct  goto 21
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+
+state 23
+	Struct:  Term T_INFIX_OP.Term 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	.  error
+
+	Term  goto 29
+	Struct  goto 21
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+
+state 24
+	Fact:  T_FACT_OP Struct T_PERIOD.    (7)
+
+	.  reduce 7 (src line 35)
+
+
+state 25
+	Rule:  Struct T_FACT_OP Terms.T_PERIOD 
+	Terms:  Terms.T_COMMA Term 
+
+	T_COMMA  shift 27
+	T_PERIOD  shift 30
+	.  error
+
+
+state 26
+	Query:  T_QUERY_OP Terms T_PERIOD.    (9)
+
+	.  reduce 9 (src line 49)
+
+
+state 27
+	Terms:  Terms T_COMMA.Term 
+
+	T_ATOM  shift 10
+	T_NUMBER  shift 15
+	T_VARNAME  shift 16
+	.  error
+
+	Term  goto 31
+	Struct  goto 21
+	Atom  goto 12
+	Number  goto 13
+	Variable  goto 14
+
+state 28
+	Terms:  Terms.T_COMMA Term 
+	Struct:  T_ATOM T_LPAREN Terms.T_RPAREN 
+
+	T_RPAREN  shift 32
+	T_COMMA  shift 27
+	.  error
+
+
+state 29
+	Struct:  Term.T_INFIX_OP Term 
+	Struct:  Term T_INFIX_OP Term.    (17)
+
+	.  reduce 17 (src line 68)
+
+
+state 30
+	Rule:  Struct T_FACT_OP Terms T_PERIOD.    (8)
+
+	.  reduce 8 (src line 44)
+
+
+state 31
+	Terms:  Terms T_COMMA Term.    (15)
+	Struct:  Term.T_INFIX_OP Term 
+
+	T_INFIX_OP  shift 23
+	.  reduce 15 (src line 59)
+
+
+state 32
+	Struct:  T_ATOM T_LPAREN Terms T_RPAREN.    (16)
+
+	.  reduce 16 (src line 64)
+
+
+13 terminals, 13 nonterminals
+21 grammar rules, 33/16000 states
+0 shift/reduce, 0 reduce/reduce conflicts reported
+62 working sets used
+memory: parser 44/240000
+15 extra closures
+35 shift entries, 1 exceptions
+20 goto entries
+24 entries saved by goto default
+Optimizer space used: output 38/240000
+38 table entries, 0 zero
+maximum spread: 13, maximum offset: 27
