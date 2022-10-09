@@ -39,30 +39,30 @@ func ASSERT(b bool) {
 
 type Store struct {
 	// Interned atoms.
-	atoms map[string]*atom
+	atoms map[string]*Atom
 
 	// Database of rules.  This is indexed by the functor and arity of the head.
-	rules map[*atom]map[int][]*rule
+	rules map[*Atom]map[int][]*rule
 }
 
 func NewStore() *Store {
 	return &Store{
-		atoms: make(map[string]*atom),
-		rules: make(map[*atom]map[int][]*rule),
+		atoms: make(map[string]*Atom),
+		rules: make(map[*Atom]map[int][]*rule),
 	}
 }
 
-func (st *Store) Symbol(name string) *atom {
+func (st *Store) Symbol(name string) *Atom {
 	if v, ok := st.atoms[name]; ok {
 		return v
 	}
-	v := &atom{name: name}
+	v := &Atom{name: name}
 	st.atoms[name] = v
 	return v
 }
 
-func (st *Store) Number(num int64) *number {
-	return &number{value: num}
+func (st *Store) Number(num int64) *Number {
+	return &Number{value: num}
 }
 
 func (st *Store) assert(r *rule) {
@@ -78,7 +78,7 @@ func (st *Store) assert(r *rule) {
 	functorMap[r.arity] = append(aritySlice, r)
 }
 
-func (st *Store) lookup(functor *atom, arity int) []*rule {
+func (st *Store) lookup(functor *Atom, arity int) []*rule {
 	functorMap, ok := st.rules[functor]
 	if !ok {
 		return []*rule{}
@@ -92,52 +92,52 @@ func (st *Store) lookup(functor *atom, arity int) []*rule {
 
 // Atoms are names with object identity.
 
-type atom struct {
+type Atom struct {
 	name string
 }
 
-func (a *atom) String() string {
+func (a *Atom) String() string {
 	return a.name
 }
 
-func (a *atom) ruleTermTag() string {
+func (a *Atom) ruleTermTag() string {
 	return "atom"
 }
 
-func (a *atom) valueTermTag() string {
+func (a *Atom) valueTermTag() string {
 	return "atom"
 }
 
 // Numbers are i64, for now
 
-type number struct {
+type Number struct {
 	value int64
 }
 
-func (a *number) String() string {
+func (a *Number) String() string {
 	return fmt.Sprint(a.value)
 }
 
-func (a *number) ruleTermTag() string {
+func (a *Number) ruleTermTag() string {
 	return "number"
 }
 
-func (a *number) valueTermTag() string {
+func (a *Number) valueTermTag() string {
 	return "number"
 }
 
 // Locals are indices into a rib of variables for the current rule.  (In principle
 // the local could also carry a name.)
 
-type local struct {
+type Local struct {
 	slot int
 }
 
-func (a *local) String() string {
+func (a *Local) String() string {
 	return fmt.Sprintf("V%d", a.slot)
 }
 
-func (a *local) ruleTermTag() string {
+func (a *Local) ruleTermTag() string {
 	return "local"
 }
 
@@ -150,7 +150,7 @@ func (a *local) ruleTermTag() string {
 
 type varslot struct {
 	next *varslot
-	val  valueTerm
+	val  ValueTerm
 }
 
 func (v *varslot) String() string {
@@ -169,12 +169,12 @@ type rib []varslot
 
 // Structures represent facts or predicates.
 
-type unboundStruct struct {
-	functor  *atom
-	subterms []ruleTerm
+type RuleStruct struct {
+	functor  *Atom
+	subterms []RuleTerm
 }
 
-func (v *unboundStruct) String() string {
+func (v *RuleStruct) String() string {
 	var b strings.Builder
 	b.WriteString(v.functor.String())
 	if len(v.subterms) > 0 {
@@ -190,44 +190,44 @@ func (v *unboundStruct) String() string {
 	return b.String()
 }
 
-func (a *unboundStruct) ruleTermTag() string {
+func (a *RuleStruct) ruleTermTag() string {
 	return "struct"
 }
 
-func bind(t ruleTerm, e rib) valueTerm {
+func bind(t RuleTerm, e rib) ValueTerm {
 	ASSERT(t != nil)
 	switch x := t.(type) {
-	case *unboundStruct:
-		return &boundStruct{env: e, s: x}
-	case *atom:
+	case *RuleStruct:
+		return &ValueStruct{env: e, s: x}
+	case *Atom:
 		return x
-	case *number:
+	case *Number:
 		return x
-	case *local:
+	case *Local:
 		return &e[x.slot]
 	default:
 		panic("NYI")
 	}
 }
 
-func bind_terms(ts []ruleTerm, e rib) []valueTerm {
-	vs := make([]valueTerm, len(ts))
+func bind_terms(ts []RuleTerm, e rib) []ValueTerm {
+	vs := make([]ValueTerm, len(ts))
 	for i, t := range ts {
 		vs[i] = bind(t, e)
 	}
 	return vs
 }
 
-type boundStruct struct {
+type ValueStruct struct {
 	env rib
-	s   *unboundStruct
+	s   *RuleStruct
 }
 
-func (v *boundStruct) valueTermTag() string {
+func (v *ValueStruct) valueTermTag() string {
 	return "struct"
 }
 
-func (v *boundStruct) String() string {
+func (v *ValueStruct) String() string {
 	var b strings.Builder
 	b.WriteString(v.s.functor.String())
 	if len(v.s.subterms) > 0 {
@@ -248,7 +248,7 @@ func (v *boundStruct) String() string {
 // fact, we use true/0.  Rules are compiled.  The `locals` member is the number of varslots to
 // allocate for the rib, representing the number of variables in the rule.
 
-type ruleTerm interface {
+type RuleTerm interface {
 	fmt.Stringer
 	ruleTermTag() string
 }
@@ -256,12 +256,12 @@ type ruleTerm interface {
 type rule struct {
 	locals  int
 	arity   int
-	functor *atom
-	formals []ruleTerm
-	body    []ruleTerm
+	functor *Atom
+	formals []RuleTerm
+	body    []RuleTerm
 }
 
-type valueTerm interface {
+type ValueTerm interface {
 	fmt.Stringer
 	valueTermTag() string
 }
@@ -269,7 +269,7 @@ type valueTerm interface {
 // "Resolving" a variable iterates until it finds a value or an unbound varslot at the end of the
 // chain, the canonical varslot.  Exactly one of the return values is not nil.
 
-func (v *varslot) resolve() (valueTerm, *varslot) {
+func (v *varslot) resolve() (ValueTerm, *varslot) {
 	for v.val == nil && v.next != nil {
 		v = v.next
 	}
@@ -285,7 +285,7 @@ func (v *varslot) resolve() (valueTerm, *varslot) {
 // invocation is a non-tail call - the failure continuation is encoded in the call stack.  If
 // the success continuation returns false then we undo the effects.
 
-func unify(val1 valueTerm, val2 valueTerm, onSuccess func() bool) bool {
+func unify(val1 ValueTerm, val2 ValueTerm, onSuccess func() bool) bool {
 	var var1, var2 *varslot
 	// TODO: As an optimization we want the varslots in the rib to be updated to point to the
 	// canonical var here so that we don't have to search as many steps later.
@@ -326,8 +326,8 @@ func unify(val1 valueTerm, val2 valueTerm, onSuccess func() bool) bool {
 		}
 		return true
 	}
-	if s1, ok := val1.(*boundStruct); ok {
-		if s2, ok := val2.(*boundStruct); ok {
+	if s1, ok := val1.(*ValueStruct); ok {
+		if s2, ok := val2.(*ValueStruct); ok {
 			if s1.s.functor != s2.s.functor || len(s1.s.subterms) != len(s2.s.subterms) {
 				return false
 			}
@@ -335,16 +335,16 @@ func unify(val1 valueTerm, val2 valueTerm, onSuccess func() bool) bool {
 		}
 		return false
 	}
-	if a1, ok := val1.(*atom); ok {
-		if a2, ok := val2.(*atom); ok {
+	if a1, ok := val1.(*Atom); ok {
+		if a2, ok := val2.(*Atom); ok {
 			if a1 == a2 {
 				return onSuccess()
 			}
 		}
 		return false
 	}
-	if n1, ok := val1.(*number); ok {
-		if n2, ok := val2.(*number); ok {
+	if n1, ok := val1.(*Number); ok {
+		if n2, ok := val2.(*Number); ok {
 			if n1.value == n2.value {
 				return onSuccess()
 			}
@@ -354,7 +354,7 @@ func unify(val1 valueTerm, val2 valueTerm, onSuccess func() bool) bool {
 	return false
 }
 
-func unify_terms(s1 []valueTerm, s2 []valueTerm, onSuccess func() bool) bool {
+func unify_terms(s1 []ValueTerm, s2 []ValueTerm, onSuccess func() bool) bool {
 	if len(s1) == 0 {
 		return onSuccess()
 	}
@@ -363,14 +363,14 @@ func unify_terms(s1 []valueTerm, s2 []valueTerm, onSuccess func() bool) bool {
 	})
 }
 
-func (st *Store) evaluateConjunct(e rib, ts []ruleTerm, onSuccess func() bool) bool {
+func (st *Store) evaluateConjunct(e rib, ts []RuleTerm, onSuccess func() bool) bool {
 	if len(ts) == 0 {
 		return onSuccess()
 	}
 	switch t := ts[0].(type) {
-	case *number, *atom, *local:
+	case *Number, *Atom, *Local:
 		return onSuccess()
-	case *unboundStruct:
+	case *RuleStruct:
 		candidates := st.lookup(t.functor, len(t.subterms))
 		return st.evaluateDisjunct(bind_terms(t.subterms, e), candidates, func /* onSuccess */ () bool {
 			return st.evaluateConjunct(e, ts[1:], onSuccess)
@@ -380,7 +380,7 @@ func (st *Store) evaluateConjunct(e rib, ts []ruleTerm, onSuccess func() bool) b
 	}
 }
 
-func (st *Store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, onSuccess func() bool) bool {
+func (st *Store) evaluateDisjunct(actuals []ValueTerm, disjuncts []*rule, onSuccess func() bool) bool {
 	for _, r := range disjuncts {
 		ASSERT(len(actuals) == r.arity)
 		newRib := make(rib, r.locals)
@@ -394,7 +394,7 @@ func (st *Store) evaluateDisjunct(actuals []valueTerm, disjuncts []*rule, onSucc
 	return false
 }
 
-func (st *Store) EvaluateQuery(query []ruleTerm, names []*atom) {
+func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom) {
 	vars := make(rib, len(names))
 	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
 		for i, n := range names {
@@ -411,28 +411,28 @@ func (st *Store) EvaluateQuery(query []ruleTerm, names []*atom) {
 
 // Convenience functions
 
-func (st *Store) AssertFact(functor *atom, subterms ...ruleTerm) {
-	st.assert(&rule{0, len(subterms), functor, subterms, []ruleTerm{}})
+func (st *Store) AssertFact(fact *RuleStruct) {
+	st.assert(&rule{0, len(fact.subterms), fact.functor, fact.subterms, []RuleTerm{}})
 }
 
-func (st *Store) AssertRule(locals []*local, head *unboundStruct, subterms ...ruleTerm) {
+func (st *Store) AssertRule(locals []*Local, head *RuleStruct, subterms []RuleTerm) {
 	st.assert(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
 }
 
-func (st *Store) Vars(names ...string) ([]*atom, []*local) {
-	as := make([]*atom, len(names))
-	ls := make([]*local, len(names))
+func (st *Store) NewLocal(index int) *Local {
+	return &Local{index}
+}
+
+func (st *Store) Vars(names ...string) ([]*Atom, []*Local) {
+	as := make([]*Atom, len(names))
+	ls := make([]*Local, len(names))
 	for i, name := range names {
 		as[i] = st.Symbol(name)
-		ls[i] = &local{i}
+		ls[i] = &Local{i}
 	}
 	return as, ls
 }
 
-func (st *Store) QueryTerm(terms ...ruleTerm) []ruleTerm {
-	return terms
-}
-
-func (st *Store) Struct(functor *atom, subterms ...ruleTerm) *unboundStruct {
-	return &unboundStruct{functor, subterms}
+func (st *Store) Struct(functor *Atom, subterms []RuleTerm) *RuleStruct {
+	return &RuleStruct{functor, subterms}
 }

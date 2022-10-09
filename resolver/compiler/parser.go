@@ -9,82 +9,19 @@ import __yyfmt__ "fmt"
 
 import (
 	"fmt"
-	"io"
+	"resolver/engine"
 	"strconv"
 )
 
-type astVar struct {
-	lineno int
-	name   string
-	index  int
-}
-
-type astAtom struct {
-	lineno int
-	name   string
-}
-
-type astNumber struct {
-	lineno int
-	value  int64
-}
-
-type astStruct struct {
-	lineno     int
-	name       string
-	components []astTerm
-}
-
-// type astTerm union {
-//   *astAtom
-//   *astNumber
-//   *astStruct
-//   *astVar
-// }
-
-type astTerm interface {
-	fmt.Stringer
-	line() int
-}
-
-type astQuery struct {
-	vars []*astVar
-	body []astTerm
-}
-
-type astFact struct {
-	head astTerm
-}
-
-type astRule struct {
-	vars []*astVar
-	head astTerm
-	body []astTerm
-}
-
-// type astPhrase union {
-//   *astFact
-//   *astRule
-//   *astQuery
-//   nil
-// }
-
-type astPhrase interface {
-	fmt.Stringer
-	line() int
-}
-
-//line parser.y:72
+//line parser.y:11
 type yySymType struct {
 	yys  int
 	name struct {
 		text string
 		line int
 	}
-	terms   []astTerm
-	term    astTerm
-	phrases []astPhrase
-	phrase  astPhrase
+	terms []engine.RuleTerm
+	term  engine.RuleTerm
 }
 
 const T_ATOM = 57346
@@ -120,354 +57,61 @@ const yyEofCode = 1
 const yyErrCode = 2
 const yyInitialStackSize = 16
 
-//line parser.y:172
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// AST
-
-func (n *astVar) String() string {
-	return fmt.Sprintf("[%s %d]", n.name, n.index)
-}
-
-func (n *astVar) line() int {
-	return n.lineno
-}
-
-func (n *astAtom) String() string {
-	return n.name
-}
-
-func (n *astAtom) line() int {
-	return n.lineno
-}
-
-func (n *astNumber) String() string {
-	return fmt.Sprint(n.value)
-}
-
-func (n *astNumber) line() int {
-	return n.lineno
-}
-
-func (n *astStruct) String() string {
-	args := ""
-	for _, c := range n.components {
-		if args != "" {
-			args = args + ","
-		}
-		args = args + c.String()
-	}
-	return n.name + "(" + args + ")"
-}
-
-func (n *astStruct) line() int {
-	return n.lineno
-}
-
-func (f *astQuery) String() string {
-	return "?- " + termsToString(f.body) + "."
-}
-
-func (f *astQuery) line() int {
-	return f.body[0].line()
-}
-
-func (f *astFact) String() string {
-	return ":-" + f.head.String() + "."
-}
-
-func (f *astFact) line() int {
-	return f.head.line()
-}
-
-func (f *astRule) String() string {
-	return f.head.String() + " :- " + termsToString(f.body) + "."
-}
-
-func (f *astRule) line() int {
-	return f.head.line()
-}
-
-func termsToString(ts []astTerm) string {
-	s := ""
-	for _, term := range ts {
-		if s != "" {
-			s = s + ", "
-		}
-		s = s + term.String()
-	}
-	return s
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Tokenizer
-
-type reader interface {
-	ReadRune() (rune, int, error)
-	UnreadRune() error
-}
-
-type tokenizer struct {
-	// Input characters
-	input reader
-
-	// Line number at start of next character in the input.  Private to lexer,
-	// tokens carry their own line numbers.
-	lineno int
-
-	// The rest of this is parser context, see parser code further down.
-	ctx *parserctx
-}
-
-func newtokenizer(r reader, ctx *parserctx) *tokenizer {
-	return &tokenizer{
-		input:  r,
-		lineno: 0,
-		ctx:    ctx,
-	}
-}
-
-func (l *tokenizer) Lex(lval *yySymType) (t int) {
-	t, lval.name.text, lval.name.line = l.get()
-	return
-}
-
-func (l *tokenizer) Error(s string) {
-	// TODO: Line number for the error, although sometimes that comes in with the
-	// message too?
-	panic(s)
-}
-
-func (t *tokenizer) peekChar() rune {
-	r, _, err := t.input.ReadRune()
-	if err == io.EOF {
-		return -1
-	}
-	if err != nil {
-		panic(fmt.Sprintf("Line %d: Bad input: "+err.Error(), t.lineno))
-	}
-	t.input.UnreadRune()
-	return r
-}
-
-func (t *tokenizer) getChar() rune {
-	r, _, err := t.input.ReadRune()
-	if err == io.EOF {
-		return -1
-	}
-	if err != nil {
-		panic(fmt.Sprintf("Line %d: Bad input: "+err.Error(), t.lineno))
-	}
-	return r
-}
-
-func (t *tokenizer) get() (tokval int, name string, lineno int) {
-outer:
-	for {
-		r := t.getChar()
-		if r == -1 {
-			tokval, lineno = -1, t.lineno
-			return
-		}
-		if r == '\t' || r == ' ' {
-			continue
-		}
-		// TODO: \r and other line breaks
-		if r == '\n' {
-			t.lineno++
-			continue
-		}
-		if r == '/' && t.peekChar() == '*' {
-			t.getChar()
-			for {
-				r := t.getChar()
-				if r == -1 {
-					panic(fmt.Sprintf("Line %d: EOF in comment", t.lineno))
-				}
-				if r == '*' && t.peekChar() == '/' {
-					t.getChar()
-					continue outer
-				}
-				if r == '\n' {
-					t.lineno++
-				}
-			}
-		}
-		if r == '(' {
-			tokval, lineno = T_LPAREN, t.lineno
-			return
-			return
-		}
-		if r == ')' {
-			tokval, lineno = T_RPAREN, t.lineno
-			return
-		}
-		if r == '.' {
-			tokval, lineno = T_PERIOD, t.lineno
-			return
-		}
-		if r == ',' {
-			tokval, lineno = T_COMMA, t.lineno
-			return
-		}
-		if r == '-' {
-			lineno = t.lineno
-			if isDigitChar(t.peekChar()) {
-				name = t.lexWhile(isDigitChar, "-")
-				tokval = T_NUMBER
-				return
-			}
-		}
-		if r == '\'' {
-			lineno = t.lineno
-			name = t.lexWhile(func(r rune) bool {
-				return r != -1 && r != '\'' && r != '\n' && r != '\r'
-			}, "")
-			if t.getChar() != '\'' {
-				panic(fmt.Sprintf("Line %d: unterminated quoted atom", t.lineno))
-			}
-			tokval = T_ATOM
-			return
-		}
-		if isOperatorChar(r) {
-			lineno = t.lineno
-			name = t.lexWhile(isOperatorChar, string(r))
-			if name == "?-" {
-				tokval = T_QUERY_OP
-				return
-			}
-			if name == ":-" {
-				tokval = T_FACT_OP
-				return
-			}
-			tokval = T_INFIX_OP
-			return
-		}
-		if isDigitChar(r) {
-			lineno = t.lineno
-			name = t.lexWhile(isDigitChar, string(r))
-			tokval = T_NUMBER
-			return
-		}
-		if isVarFirstChar(r) {
-			lineno = t.lineno
-			name = t.lexWhile(isAtomNextChar, string(r))
-			tokval = T_VARNAME
-			return
-		}
-		if isAtomFirstChar(r) {
-			lineno = t.lineno
-			name = t.lexWhile(isAtomNextChar, string(r))
-			// TODO: This strikes me as a hack, there should be a more principled solution
-			// to this somewhere.
-			if name == "is" {
-				tokval = T_INFIX_OP
-			} else {
-				tokval = T_ATOM
-			}
-			return
-		}
-		panic(fmt.Sprintf("Line %d: bad character: %v", t.lineno, r))
-	}
-}
-
-// This depends on isChar() being false for -1 and newlines
-func (t *tokenizer) lexWhile(isChar func(r rune) bool, s string) string {
-	for isChar(t.peekChar()) {
-		s = s + string(t.getChar())
-	}
-	return s
-}
-
-func isOperatorChar(r rune) bool {
-	return r == '+' || r == '-' || r == '?' || r == ':' || r == '!' || r == '='
-}
-
-func isDigitChar(r rune) bool {
-	return r >= '0' && r <= '9'
-}
-
-func isAtomFirstChar(r rune) bool {
-	return r >= 'a' && r <= 'z'
-}
-
-func isVarFirstChar(r rune) bool {
-	return r >= 'A' && r <= 'Z' || r == '_'
-}
-
-func isAtomNextChar(r rune) bool {
-	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '_' || r >= '0' && r <= '9'
-}
+//line parser.y:94
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Parser interface
 
-// An alternative here would be to pass in a callback and for the grammar to act on each phrase
-// as it is encountered.  That might also play a little better in an interactive system.
-
 // Sticking parser context on yylex is how the cool kids do it, but it's really not pretty.
 
+func parser(l yyLexer) *parserctx {
+	return l.(*tokenizer).ctx
+}
+
 type parserctx struct {
+	st *engine.Store
+
 	// Next index for a variable in the clause
 	varIndex int
 
 	// All unique variables in the current clause.
-	vars []*astVar
+	vars []*engine.Local
 
 	nameMap map[string]int
-
-	// Set to the slice of phrases when the parse succeeds
-	result []astPhrase
 }
 
-func parsePhrases(r reader) []astPhrase {
-	ctx := &parserctx{
+func newParser(st *engine.Store) *parserctx {
+	return &parserctx{
+		st:       st,
 		varIndex: 0,
-		vars:     make([]*astVar, 0),
+		vars:     make([]*engine.Local, 0),
 		nameMap:  make(map[string]int, 0),
 	}
-	t := newtokenizer(r, ctx)
-	if yyParse(t) == 0 {
-		return ctx.result
-	}
-	panic("Parse failed")
 }
 
-func setResult(l yyLexer, r []astPhrase) {
-	l.(*tokenizer).ctx.result = r
-}
-
-func newVariable(l yyLexer, name string, line int) *astVar {
-	p := l.(*tokenizer).ctx
-	if name == "_" {
-		// Fresh anonymous variable
-		index := p.varIndex
-		p.varIndex++
-		v := &astVar{line, name, index}
-		p.vars = append(p.vars, v)
-		return v
+func (p *parserctx) makeVariable(name string) *engine.Local {
+	// Previously seen variable?
+	if index, found := p.nameMap[name]; found {
+		return p.st.NewLocal(index)
 	}
 
-	index, found := p.nameMap[name]
-	if found {
-		// Previously seen variable
-		return &astVar{line, name, index}
-	}
-
-	// Fresh named variable
-	index = p.varIndex
+	// Fresh variable
+	index := p.varIndex
 	p.varIndex++
-	p.nameMap[name] = index
-	v := &astVar{line, name, index}
+	if name != "_" {
+		p.nameMap[name] = index
+	}
+	v := p.st.NewLocal(index)
 	p.vars = append(p.vars, v)
 	return v
 }
 
-func getVars(l yyLexer) []*astVar {
-	p := l.(*tokenizer).ctx
+func (p *parserctx) hasFreeVariables() bool {
+	return len(p.vars) > 0
+}
+
+func (p *parserctx) getAndClearVars() []*engine.Local {
 	vs := p.vars
 	p.varIndex = 0
 	p.vars = p.vars[0:0]
@@ -475,6 +119,48 @@ func getVars(l yyLexer) []*astVar {
 		delete(p.nameMap, k)
 	}
 	return vs
+}
+
+func (p *parserctx) evalFact(fact *engine.RuleStruct) {
+	p.st.AssertFact(fact)
+}
+
+func (p *parserctx) evalQuery(query []engine.RuleTerm) {
+	names := make([]*engine.Atom, len(p.nameMap))
+	for k, v := range p.nameMap {
+		names[v] = p.st.Symbol(k)
+	}
+	for i, n := range names {
+		if n == nil {
+			names[i] = p.st.Symbol("_")
+		}
+	}
+	p.getAndClearVars()
+	p.st.EvaluateQuery(query, names)
+}
+
+func (p *parserctx) evalRule(head *engine.RuleStruct, body []engine.RuleTerm) {
+	p.st.AssertRule(p.getAndClearVars(), head, body)
+}
+
+func (p *parserctx) makeStruct(functor string, terms []engine.RuleTerm) *engine.RuleStruct {
+	return p.st.Struct(p.st.Symbol(functor), terms)
+}
+
+func (p *parserctx) makeNumber(n int64) *engine.Number {
+	return p.st.Number(n)
+}
+
+func (p *parserctx) makeAtom(name string) *engine.Atom {
+	return p.st.Symbol(name)
+}
+
+func Repl(st *engine.Store, r reader) {
+	ctx := newParser(st)
+	t := newTokenizer(r, ctx)
+	if yyParse(t) != 0 {
+		panic("Parse failed")
+	}
 }
 
 //line yacctab:1
@@ -489,48 +175,48 @@ const yyPrivate = 57344
 const yyLast = 38
 
 var yyAct = [...]int8{
-	19, 26, 31, 11, 26, 25, 18, 21, 11, 10,
-	15, 16, 32, 26, 22, 24, 23, 7, 8, 10,
-	15, 16, 20, 14, 29, 9, 13, 30, 27, 28,
-	17, 12, 6, 5, 4, 3, 2, 1,
+	20, 18, 19, 11, 10, 15, 16, 24, 11, 27,
+	30, 22, 7, 9, 27, 26, 32, 27, 23, 21,
+	6, 25, 8, 5, 29, 28, 4, 17, 31, 10,
+	15, 16, 3, 2, 14, 13, 12, 1,
 }
 
 var yyPact = [...]int16{
-	-1000, -1000, 5, -1000, -1000, -1000, -1000, 15, 15, -5,
-	6, 9, -1000, -1000, -1000, -1000, -1000, 4, -6, 9,
-	-1000, 15, 15, 15, -1000, -1000, 15, -9, 3, -1000,
-	9, -1000, -1000,
+	-1000, -1000, 0, -1000, -1000, -1000, -1000, 25, -11, 25,
+	3, 11, -1000, -1000, -1000, -1000, -1000, -4, 25, 4,
+	11, -1000, 25, 25, -1000, -1, -1000, 25, 7, -1000,
+	-1000, 11, -1000,
 }
 
 var yyPgo = [...]int8{
-	0, 37, 36, 35, 34, 33, 32, 6, 0, 22,
-	31, 26, 23,
+	0, 37, 2, 0, 19, 36, 35, 34, 33, 32,
+	26, 23, 20,
 }
 
 var yyR1 = [...]int8{
-	0, 1, 2, 2, 3, 3, 3, 4, 5, 6,
-	8, 8, 8, 8, 7, 7, 9, 9, 10, 11,
-	12,
+	0, 1, 8, 8, 9, 9, 9, 10, 11, 12,
+	3, 3, 3, 3, 2, 2, 4, 4, 5, 6,
+	7,
 }
 
 var yyR2 = [...]int8{
-	0, 1, 0, 2, 1, 1, 1, 3, 3, 4,
+	0, 1, 0, 2, 1, 1, 1, 3, 4, 3,
 	1, 1, 1, 1, 1, 3, 4, 3, 1, 1,
 	1,
 }
 
 var yyChk = [...]int16{
-	-1000, -1, -2, -3, -4, -5, -6, 12, 13, -9,
-	4, -8, -10, -11, -12, 5, 6, -9, -7, -8,
-	-9, 12, 8, 7, 11, 11, 10, -7, -7, -8,
-	-8, 11, 9,
+	-1000, -1, -8, -9, -10, -11, -12, 12, -4, 13,
+	4, -3, -5, -6, -7, 5, 6, -4, 12, -2,
+	-3, -4, 8, 7, 11, -2, 11, 10, -2, -3,
+	11, -3, 9,
 }
 
 var yyDef = [...]int8{
-	2, -2, 1, 3, 4, 5, 6, 0, 0, 10,
-	18, 0, 11, 12, 13, 19, 20, 10, 0, 14,
-	10, 0, 0, 0, 7, 8, 0, 0, 0, 17,
-	15, 9, 16,
+	2, -2, 1, 3, 4, 5, 6, 0, 10, 0,
+	18, 0, 11, 12, 13, 19, 20, 10, 0, 0,
+	14, 10, 0, 0, 7, 0, 9, 0, 0, 17,
+	8, 15, 16,
 }
 
 var yyTok1 = [...]int8{
@@ -883,93 +569,74 @@ yydefault:
 	// dummy call; replaced with literal code
 	switch yynt {
 
-	case 1:
-		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:98
-		{
-			setResult(yylex, yyDollar[1].phrases)
-		}
-	case 2:
-		yyDollar = yyS[yypt-0 : yypt+1]
-//line parser.y:103
-		{
-			yyVAL.phrases = []astPhrase{}
-		}
-	case 3:
-		yyDollar = yyS[yypt-2 : yypt+1]
-//line parser.y:107
-		{
-			yyVAL.phrases = append(yyDollar[1].phrases, yyDollar[2].phrase)
-		}
 	case 7:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:113
+//line parser.y:36
 		{
-			vars := getVars(yylex)
-			if len(vars) != 0 {
+			if parser(yylex).hasFreeVariables() {
 				yylex.Error("Facts should not have free variables")
-				// TODO: how to recover here?
+				// TODO: how to recover or continue here if Error returns?
 			}
-			yyVAL.phrase = &astFact{yyDollar[2].term}
+			parser(yylex).evalFact(yyDollar[2].term.(*engine.RuleStruct))
 		}
 	case 8:
-		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:123
+		yyDollar = yyS[yypt-4 : yypt+1]
+//line parser.y:45
 		{
-			yyVAL.phrase = &astQuery{getVars(yylex), yyDollar[2].terms}
+			parser(yylex).evalRule(yyDollar[1].term.(*engine.RuleStruct), yyDollar[3].terms)
 		}
 	case 9:
-		yyDollar = yyS[yypt-4 : yypt+1]
-//line parser.y:128
+		yyDollar = yyS[yypt-3 : yypt+1]
+//line parser.y:50
 		{
-			yyVAL.phrase = &astRule{getVars(yylex), yyDollar[1].term, yyDollar[3].terms}
+			parser(yylex).evalQuery(yyDollar[2].terms)
 		}
 	case 14:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:134
+//line parser.y:56
 		{
-			yyVAL.terms = []astTerm{yyDollar[1].term}
+			yyVAL.terms = []engine.RuleTerm{yyDollar[1].term}
 		}
 	case 15:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:138
+//line parser.y:60
 		{
 			yyVAL.terms = append(yyDollar[1].terms, yyDollar[3].term)
 		}
 	case 16:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line parser.y:143
+//line parser.y:65
 		{
-			yyVAL.term = &astStruct{yyDollar[1].name.line, yyDollar[1].name.text, yyDollar[3].terms}
+			yyVAL.term = parser(yylex).makeStruct(yyDollar[1].name.text, yyDollar[3].terms)
 		}
 	case 17:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:147
+//line parser.y:69
 		{
-			yyVAL.term = &astStruct{yyDollar[1].term.line(), yyDollar[2].name.text, []astTerm{yyDollar[1].term, yyDollar[3].term}}
+			yyVAL.term = parser(yylex).makeStruct(yyDollar[2].name.text, []engine.RuleTerm{yyDollar[1].term, yyDollar[3].term})
 		}
 	case 18:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:152
+//line parser.y:74
 		{
-			yyVAL.term = &astAtom{yyDollar[1].name.line, yyDollar[1].name.text}
+			yyVAL.term = parser(yylex).makeAtom(yyDollar[1].name.text)
 		}
 	case 19:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:157
+//line parser.y:79
 		{
 			val, err := strconv.ParseInt(yyDollar[1].name.text, 10, 64)
 			if err != nil {
-				yylex.Error("numeric overflow")
-				// TODO: how to recover here?
+				yylex.Error(fmt.Sprintf("Line %d: numeric overflow: %s", yyDollar[1].name.line, yyDollar[1].name.text))
+				// TODO: how to recover or continue here if Error returns?
 			}
-			yyVAL.term = &astNumber{yyDollar[1].name.line, val}
+			yyVAL.term = parser(yylex).makeNumber(val)
 		}
 	case 20:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:167
+//line parser.y:89
 		{
-			yyVAL.term = newVariable(yylex, yyDollar[1].name.text, yyDollar[1].name.line)
+			yyVAL.term = parser(yylex).makeVariable(yyDollar[1].name.text)
 		}
 	}
 	goto yystack /* stack new state and value */
