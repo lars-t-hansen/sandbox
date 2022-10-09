@@ -188,11 +188,3 @@ func (p *parserctx) makeNumber(n int64) *engine.Number {
 func (p *parserctx) makeAtom(name string) *engine.Atom {
 	return p.st.NewAtom(name)
 }
-
-func Repl(st *engine.Store, r reader, writeString func(string)) {
-	ctx := newParser(st, writeString)
-	t := newTokenizer(r, ctx)
-	if yyParse(t) != 0 {
-		panic("Parse failed")
-	}
-}
