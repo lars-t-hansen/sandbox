@@ -91,11 +91,14 @@ Variable : T_VARNAME
 
 %%
 
-/////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Parser interface
+func (t *tokenizer) Lex(lval *yySymType) (tok int) {
+	tok, lval.text = t.get()
+	return
+}
 
-// Sticking parser context on yylex is how the cool kids do it, but it's really not pretty.
+func (t *tokenizer) Error(s string) {
+	panic(fmt.Sprintf("Line %d: %s", t.lineno, s))
+}
 
 func parser(l yyLexer) *parserctx {
 	return l.(*tokenizer).ctx

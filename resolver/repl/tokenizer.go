@@ -5,25 +5,10 @@ import (
 	"io"
 )
 
-/////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Tokenizer
-
-type reader interface {
-	ReadRune() (rune, int, error)
-	UnreadRune() error
-}
-
 type tokenizer struct {
-	// Input characters
-	input reader
-
-	// Line number at start of next character in the input.  Private to lexer,
-	// tokens and nonterminals carry their own line numbers.
+	input  reader
 	lineno int
-
-	// The rest of this is parser context, see parser code above.
-	ctx *parserctx
+	ctx    *parserctx
 }
 
 func newTokenizer(r reader, ctx *parserctx) *tokenizer {
@@ -32,15 +17,6 @@ func newTokenizer(r reader, ctx *parserctx) *tokenizer {
 		lineno: 0,
 		ctx:    ctx,
 	}
-}
-
-func (t *tokenizer) Lex(lval *yySymType) (tok int) {
-	tok, lval.text = t.get()
-	return
-}
-
-func (t *tokenizer) Error(s string) {
-	panic(fmt.Sprintf("Line %d: %s", t.lineno, s))
 }
 
 func (t *tokenizer) peekChar() rune {
@@ -178,6 +154,7 @@ func (t *tokenizer) lexWhile(isChar func(r rune) bool, s string) string {
 }
 
 func isOperatorChar(r rune) bool {
+	// TODO: inadequate
 	return r == '+' || r == '-' || r == '?' || r == ':' || r == '!' || r == '='
 }
 
@@ -186,13 +163,18 @@ func isDigitChar(r rune) bool {
 }
 
 func isAtomFirstChar(r rune) bool {
+	// TODO: any unicode "lower case" letter should be accepted.  Letters outside the
+	// ascii range have to be quoted now.
 	return r >= 'a' && r <= 'z'
 }
 
 func isVarFirstChar(r rune) bool {
+	// TODO: any unicode "upper case" letter should be accepted
 	return r >= 'A' && r <= 'Z' || r == '_'
 }
 
 func isAtomNextChar(r rune) bool {
+	// TODO: any unicode letter should be accepted.  Letters outside the ascii range have to
+	// be quoted now.
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '_' || r >= '0' && r <= '9'
 }

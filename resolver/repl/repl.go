@@ -4,6 +4,11 @@ package repl
 
 import "resolver/engine"
 
+type reader interface {
+	ReadRune() (rune, int, error)
+	UnreadRune() error
+}
+
 func Repl(st *engine.Store, r reader, writeString func(string)) {
 	ctx := newParser(st, writeString)
 	t := newTokenizer(r, ctx)
