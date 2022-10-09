@@ -34,15 +34,13 @@ func newTokenizer(r reader, ctx *parserctx) *tokenizer {
 	}
 }
 
-func (l *tokenizer) Lex(lval *yySymType) (t int) {
-	t, lval.name.text, lval.name.line = l.get()
+func (t *tokenizer) Lex(lval *yySymType) (tok int) {
+	tok, lval.text = t.get()
 	return
 }
 
-func (l *tokenizer) Error(s string) {
-	// TODO: Line number for the error, although sometimes that comes in with the
-	// message too?
-	panic(fmt.Sprintf("Line %d: %s", l.lineno, s))
+func (t *tokenizer) Error(s string) {
+	panic(fmt.Sprintf("Line %d: %s", t.lineno, s))
 }
 
 func (t *tokenizer) peekChar() rune {
@@ -68,12 +66,12 @@ func (t *tokenizer) getChar() rune {
 	return r
 }
 
-func (t *tokenizer) get() (tokval int, name string, lineno int) {
+func (t *tokenizer) get() (tokval int, name string) {
 outer:
 	for {
 		r := t.getChar()
 		if r == -1 {
-			tokval, lineno = -1, t.lineno
+			tokval = -1
 			return
 		}
 		if r == '\t' || r == ' ' {
@@ -101,24 +99,22 @@ outer:
 			}
 		}
 		if r == '(' {
-			tokval, lineno = T_LPAREN, t.lineno
-			return
+			tokval = T_LPAREN
 			return
 		}
 		if r == ')' {
-			tokval, lineno = T_RPAREN, t.lineno
+			tokval = T_RPAREN
 			return
 		}
 		if r == '.' {
-			tokval, lineno = T_PERIOD, t.lineno
+			tokval = T_PERIOD
 			return
 		}
 		if r == ',' {
-			tokval, lineno = T_COMMA, t.lineno
+			tokval = T_COMMA
 			return
 		}
 		if r == '-' {
-			lineno = t.lineno
 			if isDigitChar(t.peekChar()) {
 				name = t.lexWhile(isDigitChar, "-")
 				tokval = T_NUMBER
@@ -126,7 +122,6 @@ outer:
 			}
 		}
 		if r == '\'' {
-			lineno = t.lineno
 			name = t.lexWhile(func(r rune) bool {
 				return r != -1 && r != '\'' && r != '\n' && r != '\r'
 			}, "")
@@ -137,7 +132,6 @@ outer:
 			return
 		}
 		if isOperatorChar(r) {
-			lineno = t.lineno
 			name = t.lexWhile(isOperatorChar, string(r))
 			if name == "?-" {
 				tokval = T_QUERY_OP
@@ -151,19 +145,16 @@ outer:
 			return
 		}
 		if isDigitChar(r) {
-			lineno = t.lineno
 			name = t.lexWhile(isDigitChar, string(r))
 			tokval = T_NUMBER
 			return
 		}
 		if isVarFirstChar(r) {
-			lineno = t.lineno
 			name = t.lexWhile(isAtomNextChar, string(r))
 			tokval = T_VARNAME
 			return
 		}
 		if isAtomFirstChar(r) {
-			lineno = t.lineno
 			name = t.lexWhile(isAtomNextChar, string(r))
 			// TODO: This strikes me as a hack, there should be a more principled solution
 			// to this somewhere.

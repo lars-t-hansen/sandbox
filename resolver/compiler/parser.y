@@ -9,18 +9,15 @@ import (
 %}
 
 %union { 
-    name struct {
-		text string
-		line int
-	}
+    text string
     terms []engine.RuleTerm
     term engine.RuleTerm
 }
 
 %start Program
 
-%token <name> T_ATOM T_NUMBER T_VARNAME
-%left <name> T_INFIX_OP
+%token <text> T_ATOM T_NUMBER T_VARNAME
+%left <text> T_INFIX_OP
 %token T_LPAREN T_RPAREN T_COMMA T_PERIOD T_FACT_OP
 %left T_QUERY_OP
 
@@ -63,23 +60,23 @@ Terms   : Term
         ;
 Struct  : T_ATOM T_LPAREN Terms T_RPAREN
             {
-                $$ = parser(yylex).makeStruct($1.text, $3)
+                $$ = parser(yylex).makeStruct($1, $3)
             }
         | Term T_INFIX_OP Term
             {
-                $$ = parser(yylex).makeStruct($2.text, []engine.RuleTerm{$1, $3})
+                $$ = parser(yylex).makeStruct($2, []engine.RuleTerm{$1, $3})
             }
         ;
 Atom    : T_ATOM
             {
-                $$ = parser(yylex).makeAtom($1.text)
+                $$ = parser(yylex).makeAtom($1)
             }
         ;
 Number  : T_NUMBER
             {
-                val, err := strconv.ParseInt($1.text, 10, 64)
+                val, err := strconv.ParseInt($1, 10, 64)
 				if err != nil {
-					yylex.Error(fmt.Sprintf("Line %d: numeric overflow: %s", $1.line, $1.text))
+					yylex.Error(fmt.Sprintf("Numeric overflow: %s", $1))
 					// TODO: how to recover or continue here if Error returns?
 				}
                 $$ = parser(yylex).makeNumber(val)
@@ -87,7 +84,7 @@ Number  : T_NUMBER
         ;
 Variable : T_VARNAME
             {
-				$$ = parser(yylex).makeVariable($1.text)
+				$$ = parser(yylex).makeVariable($1)
             }
         ;
 

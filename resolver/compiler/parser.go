@@ -15,11 +15,8 @@ import (
 
 //line parser.y:11
 type yySymType struct {
-	yys  int
-	name struct {
-		text string
-		line int
-	}
+	yys   int
+	text  string
 	terms []engine.RuleTerm
 	term  engine.RuleTerm
 }
@@ -57,7 +54,7 @@ const yyEofCode = 1
 const yyErrCode = 2
 const yyInitialStackSize = 16
 
-//line parser.y:94
+//line parser.y:91
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -574,7 +571,7 @@ yydefault:
 
 	case 7:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:36
+//line parser.y:33
 		{
 			if parser(yylex).hasFreeVariables() {
 				yylex.Error("Facts should not have free variables")
@@ -584,62 +581,62 @@ yydefault:
 		}
 	case 8:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line parser.y:45
+//line parser.y:42
 		{
 			parser(yylex).evalRule(yyDollar[1].term.(*engine.RuleStruct), yyDollar[3].terms)
 		}
 	case 9:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:50
+//line parser.y:47
 		{
 			parser(yylex).evalQuery(yyDollar[2].terms)
 		}
 	case 14:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:56
+//line parser.y:53
 		{
 			yyVAL.terms = []engine.RuleTerm{yyDollar[1].term}
 		}
 	case 15:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:60
+//line parser.y:57
 		{
 			yyVAL.terms = append(yyDollar[1].terms, yyDollar[3].term)
 		}
 	case 16:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line parser.y:65
+//line parser.y:62
 		{
-			yyVAL.term = parser(yylex).makeStruct(yyDollar[1].name.text, yyDollar[3].terms)
+			yyVAL.term = parser(yylex).makeStruct(yyDollar[1].text, yyDollar[3].terms)
 		}
 	case 17:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line parser.y:69
+//line parser.y:66
 		{
-			yyVAL.term = parser(yylex).makeStruct(yyDollar[2].name.text, []engine.RuleTerm{yyDollar[1].term, yyDollar[3].term})
+			yyVAL.term = parser(yylex).makeStruct(yyDollar[2].text, []engine.RuleTerm{yyDollar[1].term, yyDollar[3].term})
 		}
 	case 18:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:74
+//line parser.y:71
 		{
-			yyVAL.term = parser(yylex).makeAtom(yyDollar[1].name.text)
+			yyVAL.term = parser(yylex).makeAtom(yyDollar[1].text)
 		}
 	case 19:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:79
+//line parser.y:76
 		{
-			val, err := strconv.ParseInt(yyDollar[1].name.text, 10, 64)
+			val, err := strconv.ParseInt(yyDollar[1].text, 10, 64)
 			if err != nil {
-				yylex.Error(fmt.Sprintf("Line %d: numeric overflow: %s", yyDollar[1].name.line, yyDollar[1].name.text))
+				yylex.Error(fmt.Sprintf("Numeric overflow: %s", yyDollar[1].text))
 				// TODO: how to recover or continue here if Error returns?
 			}
 			yyVAL.term = parser(yylex).makeNumber(val)
 		}
 	case 20:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line parser.y:89
+//line parser.y:86
 		{
-			yyVAL.term = parser(yylex).makeVariable(yyDollar[1].name.text)
+			yyVAL.term = parser(yylex).makeVariable(yyDollar[1].text)
 		}
 	}
 	goto yystack /* stack new state and value */
