@@ -3,7 +3,7 @@ state 0
 	$accept: .Program $end 
 	Phrases: .    (2)
 
-	.  reduce 2 (src line 33)
+	.  reduce 2 (src line 32)
 
 	Program  goto 1
 	Phrases  goto 2
@@ -24,7 +24,7 @@ state 2
 	T_VARNAME  shift 16
 	T_FACT_OP  shift 7
 	T_QUERY_OP  shift 9
-	.  reduce 1 (src line 32)
+	.  reduce 1 (src line 31)
 
 	Term  goto 11
 	Struct  goto 8
@@ -39,25 +39,25 @@ state 2
 state 3
 	Phrases:  Phrases Phrase.    (3)
 
-	.  reduce 3 (src line 33)
+	.  reduce 3 (src line 32)
 
 
 state 4
 	Phrase:  Fact.    (4)
 
-	.  reduce 4 (src line 34)
+	.  reduce 4 (src line 33)
 
 
 state 5
 	Phrase:  Rule.    (5)
 
-	.  reduce 5 (src line 34)
+	.  reduce 5 (src line 33)
 
 
 state 6
 	Phrase:  Query.    (6)
 
-	.  reduce 6 (src line 34)
+	.  reduce 6 (src line 33)
 
 
 state 7
@@ -79,7 +79,7 @@ state 8
 	Term:  Struct.    (10)
 
 	T_FACT_OP  shift 18
-	.  reduce 10 (src line 54)
+	.  reduce 10 (src line 53)
 
 
 state 9
@@ -102,7 +102,7 @@ state 10
 	Atom:  T_ATOM.    (18)
 
 	T_LPAREN  shift 22
-	.  reduce 18 (src line 73)
+	.  reduce 18 (src line 72)
 
 
 state 11
@@ -115,31 +115,31 @@ state 11
 state 12
 	Term:  Atom.    (11)
 
-	.  reduce 11 (src line 54)
+	.  reduce 11 (src line 53)
 
 
 state 13
 	Term:  Number.    (12)
 
-	.  reduce 12 (src line 54)
+	.  reduce 12 (src line 53)
 
 
 state 14
 	Term:  Variable.    (13)
 
-	.  reduce 13 (src line 54)
+	.  reduce 13 (src line 53)
 
 
 state 15
 	Number:  T_NUMBER.    (19)
 
-	.  reduce 19 (src line 78)
+	.  reduce 19 (src line 77)
 
 
 state 16
 	Variable:  T_VARNAME.    (20)
 
-	.  reduce 20 (src line 88)
+	.  reduce 20 (src line 87)
 
 
 state 17
@@ -147,7 +147,7 @@ state 17
 	Term:  Struct.    (10)
 
 	T_PERIOD  shift 24
-	.  reduce 10 (src line 54)
+	.  reduce 10 (src line 53)
 
 
 state 18
@@ -179,13 +179,13 @@ state 20
 	Struct:  Term.T_INFIX_OP Term 
 
 	T_INFIX_OP  shift 23
-	.  reduce 14 (src line 55)
+	.  reduce 14 (src line 54)
 
 
 state 21
 	Term:  Struct.    (10)
 
-	.  reduce 10 (src line 54)
+	.  reduce 10 (src line 53)
 
 
 state 22
@@ -220,7 +220,7 @@ state 23
 state 24
 	Fact:  T_FACT_OP Struct T_PERIOD.    (7)
 
-	.  reduce 7 (src line 35)
+	.  reduce 7 (src line 34)
 
 
 state 25
@@ -235,7 +235,7 @@ state 25
 state 26
 	Query:  T_QUERY_OP Terms T_PERIOD.    (9)
 
-	.  reduce 9 (src line 49)
+	.  reduce 9 (src line 48)
 
 
 state 27
@@ -265,13 +265,13 @@ state 29
 	Struct:  Term.T_INFIX_OP Term 
 	Struct:  Term T_INFIX_OP Term.    (17)
 
-	.  reduce 17 (src line 68)
+	.  reduce 17 (src line 67)
 
 
 state 30
 	Rule:  Struct T_FACT_OP Terms T_PERIOD.    (8)
 
-	.  reduce 8 (src line 44)
+	.  reduce 8 (src line 43)
 
 
 state 31
@@ -279,13 +279,13 @@ state 31
 	Struct:  Term.T_INFIX_OP Term 
 
 	T_INFIX_OP  shift 23
-	.  reduce 15 (src line 59)
+	.  reduce 15 (src line 58)
 
 
 state 32
 	Struct:  T_ATOM T_LPAREN Terms T_RPAREN.    (16)
 
-	.  reduce 16 (src line 64)
+	.  reduce 16 (src line 63)
 
 
 13 terminals, 13 nonterminals
