@@ -1,3 +1,4 @@
+/* To regenerate parser.go, `go generate` in this directory */
 %{
 package repl
 
