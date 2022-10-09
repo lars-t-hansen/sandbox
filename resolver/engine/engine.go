@@ -18,6 +18,7 @@
 // TODO:
 // - the obvious first step is to insert an explicit failure continuation
 // - another obvious step is to introduce "cut", possibly "fail"
+// - some built-in predicates, notably `is`
 // - the continuations can later be reified and the engine recoded as a state machine with
 //   explicit data structures
 
