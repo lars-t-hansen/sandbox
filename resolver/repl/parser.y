@@ -1,5 +1,7 @@
 /* To regenerate parser.go, `go generate` in this directory */
 %{
+//go:generate goyacc -o parser.go parser.y
+
 package repl
 
 import (

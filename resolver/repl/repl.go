@@ -1,7 +1,5 @@
 package repl
 
-//go:generate goyacc -o parser.go parser.y
-
 import "resolver/engine"
 
 type reader interface {
