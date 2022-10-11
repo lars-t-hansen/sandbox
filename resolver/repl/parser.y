@@ -169,11 +169,6 @@ func (p *parserctx) evalQuery(query []engine.RuleTerm) {
 	for k, v := range p.nameMap {
 		names[v] = p.st.NewAtom(k)
 	}
-	for i, n := range names {
-		if n == nil {
-			names[i] = p.st.NewAtom("_")
-		}
-	}
 	p.getAndClearVars()
 	p.st.EvaluateQuery(query, names, p.writeString)
 }

@@ -414,7 +414,9 @@ func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom, writeString func
 	vars := make(rib, len(names))
 	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
 		for i, n := range names {
-			writeString(n.name + "=" + vars[i].String() + "\n")
+			if n != nil {
+				writeString(n.name + "=" + vars[i].String() + "\n")
+			}
 		}
 		return true
 	})
