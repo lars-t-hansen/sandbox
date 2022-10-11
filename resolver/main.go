@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"resolver/engine"
 	"resolver/repl"
 	"strings"
@@ -25,5 +24,6 @@ grandfather(X, Y) :- father(X, Z), father(Z, Y).
 
 func main() {
 	st := engine.NewStore()
-	repl.Repl(st, strings.NewReader(input), func(s string) { os.Stdout.WriteString(s) })
+
+	repl.Repl(st, strings.NewReader(input))
 }

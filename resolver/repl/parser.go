@@ -82,16 +82,20 @@ type parserctx struct {
 
 	nameMap map[string]int
 
-	writeString func(s string)
+	processQuerySuccess func([]*engine.Atom, []engine.Varslot) bool
+	processQueryFailure func()
 }
 
-func newParser(st *engine.Store, writeString func(string)) *parserctx {
+func newParser(st *engine.Store,
+	processQuerySuccess func([]*engine.Atom, []engine.Varslot) bool,
+	processQueryFailure func()) *parserctx {
 	return &parserctx{
-		st:          st,
-		varIndex:    0,
-		vars:        make([]*engine.Local, 0),
-		nameMap:     make(map[string]int, 0),
-		writeString: writeString,
+		st:                  st,
+		varIndex:            0,
+		vars:                make([]*engine.Local, 0),
+		nameMap:             make(map[string]int, 0),
+		processQuerySuccess: processQuerySuccess,
+		processQueryFailure: processQueryFailure,
 	}
 }
 
@@ -135,13 +139,8 @@ func (p *parserctx) evalQuery(query []engine.RuleTerm) {
 	for k, v := range p.nameMap {
 		names[v] = p.st.NewAtom(k)
 	}
-	for i, n := range names {
-		if n == nil {
-			names[i] = p.st.NewAtom("_")
-		}
-	}
 	p.getAndClearVars()
-	p.st.EvaluateQuery(query, names, p.writeString)
+	p.st.EvaluateQuery(query, names, p.processQuerySuccess, p.processQueryFailure)
 }
 
 func (p *parserctx) evalRule(head *engine.RuleStruct, body []engine.RuleTerm) {

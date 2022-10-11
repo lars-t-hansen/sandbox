@@ -68,7 +68,7 @@ type ValueTerm interface {
 	valueTermTag() string
 }
 
-type rib []varslot
+type rib []Varslot
 
 func bind(t RuleTerm, e rib) ValueTerm {
 	assert(t != nil)
@@ -101,12 +101,12 @@ func bind_terms(ts []RuleTerm, e rib) []ValueTerm {
 // in which case this is the canonical varslot for a variable, or it points to another varslot
 // that this varslot has been unified with.
 
-type varslot struct {
-	next *varslot
+type Varslot struct {
+	next *Varslot
 	val  ValueTerm
 }
 
-func (v *varslot) String() string {
+func (v *Varslot) String() string {
 	assert(v != nil)
 	if v.val != nil {
 		return "[value " + v.val.String() + "]"
@@ -114,14 +114,14 @@ func (v *varslot) String() string {
 	return "[varslot]"
 }
 
-func (v *varslot) valueTermTag() string {
+func (v *Varslot) valueTermTag() string {
 	return "[varslot]"
 }
 
 // "Resolving" a varslot iterates until it finds a value or an unbound varslot at the end of the
 // chain, the canonical varslot.  Exactly one of the return values is not nil.
 
-func (v *varslot) resolve() (ValueTerm, *varslot) {
+func (v *Varslot) resolve() (ValueTerm, *Varslot) {
 	for v.val == nil && v.next != nil {
 		v = v.next
 	}

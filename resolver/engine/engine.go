@@ -42,13 +42,13 @@ func assert(b bool) {
 // the success continuation returns false then we undo the effects.
 
 func unify(val1 ValueTerm, val2 ValueTerm, onSuccess func() bool) bool {
-	var var1, var2 *varslot
+	var var1, var2 *Varslot
 	// TODO: As an optimization we want the varslots in the rib to be updated to point to the
 	// canonical var here so that we don't have to search as many steps later.
-	if ub1, ok := val1.(*varslot); ok {
+	if ub1, ok := val1.(*Varslot); ok {
 		val1, var1 = ub1.resolve()
 	}
-	if ub2, ok := val2.(*varslot); ok {
+	if ub2, ok := val2.(*Varslot); ok {
 		val2, var2 = ub2.resolve()
 	}
 	if var1 != nil {
@@ -132,7 +132,7 @@ func (st *Store) evaluateConjunct(e rib, ts []RuleTerm, onSuccess func() bool) b
 			return st.evaluateConjunct(e, ts[1:], onSuccess)
 		})
 	default:
-		panic(fmt.Sprintf("No such structure %v", t))
+		panic(fmt.Sprintf("Unknown term type %v", t))
 	}
 }
 
@@ -158,19 +158,14 @@ func (st *Store) AssertRule(locals []*Local, head *RuleStruct, subterms []RuleTe
 	st.addRule(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
 }
 
-func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom, writeString func(s string)) {
+func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom,
+	processQuerySuccess func(names []*Atom, vars []Varslot) bool,
+	processQueryFailure func()) {
 	vars := make(rib, len(names))
 	result := st.evaluateConjunct(vars, query, func /* onSuccess */ () bool {
-		for i, n := range names {
-			if n != nil {
-				writeString(n.name + "=" + vars[i].String() + "\n")
-			}
-		}
-		return true
+		return processQuerySuccess(names, vars)
 	})
-	if result {
-		writeString("yes\n")
-	} else {
-		writeString("no\n")
+	if !result {
+		processQueryFailure()
 	}
 }
