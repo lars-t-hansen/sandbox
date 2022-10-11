@@ -17,17 +17,13 @@
 // values.go for more.
 
 // TODO:
+// - some built-in predicates, notably `is`
 // - the obvious first step is to insert an explicit failure continuation
 // - another obvious step is to introduce "cut", possibly "fail"
-// - some built-in predicates, notably `is`
 // - the continuations can later be reified and the engine recoded as a state machine with
 //   explicit data structures
 
 package engine
-
-import (
-	"fmt"
-)
 
 func assert(b bool) {
 	if !b {
@@ -132,7 +128,7 @@ func (st *Store) evaluateConjunct(e rib, ts []RuleTerm, onSuccess func() bool) b
 			return st.evaluateConjunct(e, ts[1:], onSuccess)
 		})
 	default:
-		panic(fmt.Sprintf("Unknown term type %v", t))
+		panic("Unknown term type")
 	}
 }
 
@@ -148,14 +144,6 @@ func (st *Store) evaluateDisjunct(actuals []ValueTerm, disjuncts []*rule, onSucc
 		}
 	}
 	return false
-}
-
-func (st *Store) AssertFact(fact *RuleStruct) {
-	st.addRule(&rule{0, len(fact.subterms), fact.functor, fact.subterms, []RuleTerm{}})
-}
-
-func (st *Store) AssertRule(locals []*Local, head *RuleStruct, subterms []RuleTerm) {
-	st.addRule(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
 }
 
 func (st *Store) EvaluateQuery(query []RuleTerm, names []*Atom,

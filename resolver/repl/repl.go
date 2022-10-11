@@ -22,7 +22,7 @@ func processQuerySuccess(names []*engine.Atom, vars []engine.Varslot) bool {
 }
 
 func processQueryFailure() {
-	os.Stdout.WriteString("yes\n")
+	os.Stdout.WriteString("no\n")
 }
 
 func Repl(st *engine.Store, r reader) {

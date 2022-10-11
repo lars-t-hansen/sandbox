@@ -266,3 +266,11 @@ type rule struct {
 	formals []RuleTerm
 	body    []RuleTerm
 }
+
+func (st *Store) AssertFact(fact *RuleStruct) {
+	st.addRule(&rule{0, len(fact.subterms), fact.functor, fact.subterms, []RuleTerm{}})
+}
+
+func (st *Store) AssertRule(locals []*Local, head *RuleStruct, subterms []RuleTerm) {
+	st.addRule(&rule{len(locals), len(head.subterms), head.functor, head.subterms, subterms})
+}
