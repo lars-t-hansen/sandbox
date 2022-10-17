@@ -1,13 +1,12 @@
 // Huffman compressor / decompressor
 //
 // huffer compress [-o outfile] filename
+// huff [-o outfile] filename
 //   Creates outfile, or if no -o option, filename.huff
 //
 // huffer decompress [-o outfile] filename.huff
+// puff [-o outfile] filename.huff
 //   Creates outfile, or if no -o option, filename
-//
-// If invoked by the name `huff`, it acts as `huffer compress`.  If invoked by
-// the name `puff`, it acts as `huffer decompress`.
 //
 // Since this is a programming exercise, it works by reading 64KB blocks and
 // compressing them individually; the output file consists of compressed blocks.
@@ -198,18 +197,7 @@ func compressBlock(dict encDict, input []uint8, output []uint8) []uint8 {
 	width := 0
 	for _, b := range input {
 		e := dict[b]
-		// FIXME: This is a hack.  The reversed bits should be stored in the
-		// dictionary that way and the dictionary should print it both ways,
-		// tagged appropriately.
-		//
-		// FIXME: Update comments here and there to reflect that.
-		bs := uint64(0)
-		x := e.bits
-		for i := 0; i < e.width; i++ {
-			bs = (bs << 1) | (x & 1)
-			x >>= 1
-		}
-		window = window | (bs << width)
+		window = window | (e.bits << width)
 		width += e.width
 		for width >= 8 {
 			if outptr == limit {
@@ -248,6 +236,10 @@ func (d encDict) String() string {
 	return s
 }
 
+// The bit string in an item is encoded with bits higher in the tree toward the
+// least significant bits, because that is how the decoder wants to use them:
+// it masks off the low bit to branch left or right, then shifts in the higher bits.
+
 type encDictItem struct {
 	width int
 	bits  uint64
@@ -269,8 +261,8 @@ func doPopulateEncDict(width int, bits uint64, tree *huffTree, dict encDict) boo
 		dict[tree.val].width = width
 		return true
 	}
-	return doPopulateEncDict(width+1, bits<<1, tree.zero, dict) &&
-		doPopulateEncDict(width+1, (bits<<1)|1, tree.one, dict)
+	return doPopulateEncDict(width+1, bits, tree.zero, dict) &&
+		doPopulateEncDict(width+1, (1<<width)|bits, tree.one, dict)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
