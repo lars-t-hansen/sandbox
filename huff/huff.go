@@ -1,10 +1,10 @@
-// Huffman encoder / decoder
+// Huffman compressor / decompressor
 //
-// huff encode filename
-//   Creates filename.huff
+// huff compress [-o outfile] filename
+//   Creates outfile, or if no -o option, filename.huff
 //
-// huff decode filename.huff
-//   Creates filename
+// huff decompress [-o outfile] filename.huff
+//   Creates outfile, or if no -o option, filename
 //
 // Since this is a programming exercise, it works by reading 64KB blocks and
 // compressing them individually; the output file consists of compressed blocks.
@@ -20,7 +20,7 @@
 //   number of bytes used for encoded bytes: u32 (max value 65536)
 //   bytes, the number of which is encoded by previous field
 //
-// An uncompressed block is written under some circumstances, it is represented as
+// An uncompressed block can be written under some circumstances, it is represented as
 //   0: u16
 //   number of bytes: u32 (really max 65536)
 //   bytes, the number of which is encoded by previous field
@@ -36,45 +36,83 @@ import (
 	"strings"
 )
 
+var usage string = "Usage: huff [compress|decompress] [-o outfilename] infilename"
+
 func main() {
 	args := os.Args[1:]
 	var err error
-	if args[0] == "encode" && len(args) == 2 {
-		err = compress_file(args[1])
-	} else if args[0] == "decode" && len(args) == 2 {
-		err = decompress_file(args[1])
+	if args[0] == "compress" {
+		var inFilename, outFilename string
+		if len(args) == 2 {
+			inFilename = args[1]
+			outFilename = inFilename + ".huff"
+		} else if len(args) == 4 {
+			if args[1] == "-o" {
+				inFilename = args[3]
+				outFilename = args[2]
+			} else {
+				err = huffError(usage)
+			}
+		}
+		if err == nil {
+			err = compressFile(inFilename, outFilename)
+		}
+	} else if args[0] == "decompress" {
+		var inFilename, outFilename string
+		if len(args) == 2 {
+			inFilename = args[1]
+			if !strings.HasSuffix(inFilename, ".huff") {
+				err = huffError("File to decompress must be named something.huff")
+			} else {
+				outFilename = inFilename[:len(inFilename)-5]
+			}
+		} else if len(args) == 4 {
+			if args[1] == "-o" {
+				inFilename = args[3]
+				outFilename = args[2]
+			} else {
+				err = huffError(usage)
+			}
+		}
+		if err == nil {
+			err = decompressFile(inFilename, outFilename)
+		}
 	} else {
-		panic(fmt.Sprintf("Bad command %v", args))
+		err = huffError(usage)
 	}
+
 	if err != nil {
-		panic(fmt.Sprintf("Failed: %v", err))
+		os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
 	}
 }
 
-type encError string
+type huffError string
 
-func (e encError) Error() string {
+func (e huffError) Error() string {
 	return string(e)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
-// Encoder
+// Compressor
 
-func compress_file(fn string) error {
-	inputFile, err := os.Open(fn)
+func compressFile(inFilename, outFilename string) error {
+	inputFile, err := os.Open(inFilename)
 	if err != nil {
-		return encError("Opening " + fn + " for reading: " + err.Error())
+		return huffError("Opening " + inFilename + " for reading: " + err.Error())
 	}
 	defer inputFile.Close()
 
-	outFn := fn + ".huff"
-	outputFile, err := os.Create(outFn)
+	outputFile, err := os.Create(outFilename)
 	if err != nil {
-		return encError("Opening " + outFn + " for writing: " + err.Error())
+		return huffError("Opening " + outFilename + " for writing: " + err.Error())
 	}
 	defer outputFile.Close()
+	return compressStream(inputFile, outputFile, inFilename, outFilename)
+}
 
+func compressStream(inputFile, outputFile *os.File, inputName, outputName string) error {
 	inputBlock := make([]uint8, 65536)
 	outputBlock := make([]uint8, 65536)
 	freqBlock := make([]freqEntry, 256)
@@ -90,15 +128,14 @@ func compress_file(fn string) error {
 			break
 		}
 		if err != nil {
-			return encError("Reading input from " + fn + ": " + err.Error())
+			return huffError("Reading input from " + inputName + ": " + err.Error())
 		}
 		input := inputBlock[:bytesRead]
 		freq := computeFrequencies(input, freqBlock)
 		tree := buildHuffTree(freq)
 		var encoded []uint8
 		if populateEncDict(0, 0, tree, dict) {
-			os.Stderr.WriteString(dict.String() + "\n")
-			encoded = encodeBlock(dict, input, outputBlock)
+			encoded = compressBlock(dict, input, outputBlock)
 		}
 		metaloc := 0
 		if encoded != nil {
@@ -116,11 +153,11 @@ func compress_file(fn string) error {
 		}
 		_, err = outputFile.Write(metadata[:metaloc])
 		if err != nil {
-			return encError("Writing metadata to " + outFn + ": " + err.Error())
+			return huffError("Writing metadata to " + outputName + ": " + err.Error())
 		}
 		_, err = outputFile.Write(encoded)
 		if err != nil {
-			return encError("Writing output to " + outFn + ": " + err.Error())
+			return huffError("Writing output to " + outputName + ": " + err.Error())
 		}
 	}
 	return nil
@@ -134,7 +171,7 @@ func compress_file(fn string) error {
 //
 // Returns nil for overflow and output[:N] for N output bytes.
 
-func encodeBlock(dict encDict, input []uint8, output []uint8) []uint8 {
+func compressBlock(dict encDict, input []uint8, output []uint8) []uint8 {
 	outptr := 0
 	limit := len(output)
 	window := uint64(0)
@@ -158,7 +195,6 @@ func encodeBlock(dict encDict, input []uint8, output []uint8) []uint8 {
 			if outptr == limit {
 				return nil
 			}
-			os.Stderr.WriteString(fmt.Sprintf("%b ", window&255))
 			output[outptr] = uint8(window & 255)
 			outptr++
 			window >>= 8
@@ -169,7 +205,6 @@ func encodeBlock(dict encDict, input []uint8, output []uint8) []uint8 {
 		if outptr == limit {
 			return nil
 		}
-		os.Stderr.WriteString(fmt.Sprintf("%b ", window&255))
 		output[outptr] = uint8(window & 255)
 		outptr++
 	}
@@ -220,25 +255,24 @@ func doPopulateEncDict(width int, bits uint64, tree *huffTree, dict encDict) boo
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
-// Decoder
+// Decompressor
 
-func decompress_file(fn string) error {
-	if !strings.HasSuffix(fn, ".huff") {
-		return encError("File to decompress must be named something.huff")
-	}
-	inputFile, err := os.Open(fn)
+func decompressFile(inFilename, outFilename string) error {
+	inputFile, err := os.Open(inFilename)
 	if err != nil {
-		return encError("Opening " + fn + " for reading: " + err.Error())
+		return huffError("Opening " + inFilename + " for reading: " + err.Error())
 	}
 	defer inputFile.Close()
 
-	outFn := fn[:len(fn)-5]
-	outputFile, err := os.Create(outFn)
+	outputFile, err := os.Create(outFilename)
 	if err != nil {
-		return encError("Opening " + outFn + " for writing: " + err.Error())
+		return huffError("Opening " + outFilename + " for writing: " + err.Error())
 	}
 	defer outputFile.Close()
+	return decompressStream(inputFile, outputFile, inFilename, outFilename)
+}
 
+func decompressStream(inputFile, outputFile *os.File, inputName, outputName string) error {
 	inputBlock := make([]uint8, 65536)
 	outputBlock := make([]uint8, 65536)
 	freqBlock := make([]freqEntry, 256)
@@ -253,10 +287,10 @@ func decompress_file(fn string) error {
 			break
 		}
 		if err != nil {
-			return encError("Reading metadata from " + fn + ": " + err.Error())
+			return huffError("Reading metadata from " + inputName + ": " + err.Error())
 		}
 		if bytesRead < 2 {
-			return encError("Reading metadata from " + fn + ": premature EOF")
+			return huffError("Reading metadata from " + inputName + ": premature EOF")
 		}
 		metaloc := 0
 		freqCount := uint(0)
@@ -272,7 +306,7 @@ func decompress_file(fn string) error {
 			return err
 		}
 		if bytesRead < numMetaBytes {
-			return encError("Reading metadata from " + fn + ": premature EOF")
+			return huffError("Reading metadata from " + inputName + ": premature EOF")
 		}
 		var bytesEncoded, bytesInEncoding uint
 		var freq []freqEntry
@@ -297,31 +331,31 @@ func decompress_file(fn string) error {
 			return err
 		}
 		if bytesRead < len(input) {
-			return encError("Reading data from " + fn + ": premature EOF")
+			return huffError("Reading data from " + inputName + ": premature EOF")
 		}
 		var decoded []uint8
 		if freqCount > 0 {
 			tree := buildHuffTree(freq)
-			decoded = decodeBlock(tree, bytesEncoded, input, outputBlock)
+			decoded = decompressBlock(tree, bytesEncoded, input, outputBlock)
 		} else {
 			decoded = input
 		}
 		_, err = outputFile.Write(decoded)
 		if err != nil {
-			return encError("Writing data to " + outFn + ": " + err.Error())
+			return huffError("Writing data to " + outputName + ": " + err.Error())
 		}
 	}
 	return nil
 }
 
-func decodeBlock(tree *huffTree, bytesEncoded uint, input []uint8, output []uint8) []uint8 {
+func decompressBlock(tree *huffTree, bytesEncoded uint, input []uint8, output []uint8) []uint8 {
 	outPtr := 0
 	inPtr := 0
 	inbyte := uint8(0)
 	inwidth := 0
 	t := tree
 	for {
-		// If we get to a leaf, emit the leaf
+		// If we get to a leaf, emit the leaf.  If we've emitted as many as we should, exit.
 		if t.zero == nil {
 			output[outPtr] = t.val
 			outPtr++
@@ -331,14 +365,11 @@ func decodeBlock(tree *huffTree, bytesEncoded uint, input []uint8, output []uint
 			t = tree
 			continue
 		}
-		// We need a bit, but if there isn't one then get one.  If there still isn't one
-		// then we're done.
+		// Backfill input if we've run out.  We can't run out of input here, we should have
+		// exited above.
 		if inwidth == 0 {
-			if inPtr == len(input) {
-				// TODO: It's probably an error here if t != tree
-				break
-			}
 			inbyte = input[inPtr]
+			inwidth = 8
 			inPtr++
 		}
 		bit := inbyte & 1
@@ -355,7 +386,7 @@ func decodeBlock(tree *huffTree, bytesEncoded uint, input []uint8, output []uint
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
-// Create tree representing the huffman encoding according to the frequency table.
+// Create tree representing the Huffman encoding according to the frequency table.
 
 // The branches are either both nil or both not nil.  If not nil then this is an interior
 // node and val is invalid, otherwise it's a leaf.
@@ -364,6 +395,9 @@ type huffTree struct {
 	zero, one *huffTree
 	val       uint8
 }
+
+// Build a tree from a frequency table sorted in descending order by frequency, for
+// non-zero frequencies only.
 
 func buildHuffTree(ft freqTable) *huffTree {
 	h := newHuffHeap(ft)
@@ -430,6 +464,9 @@ func (ft freqTable) Len() int           { return len(ft) }
 func (ft freqTable) Less(i, j int) bool { return ft[i].count > ft[j].count }
 func (ft freqTable) Swap(i, j int)      { ft[i], ft[j] = ft[j], ft[i] }
 
+// Return a table of (byteValue, frequency) sorted in descending order by frequency,
+// for non-zero frequencies.
+
 func computeFrequencies(input []uint8, ft freqTable) freqTable {
 	for i := range ft {
 		ft[i].val = uint8(i)
@@ -448,7 +485,10 @@ func computeFrequencies(input []uint8, ft freqTable) freqTable {
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
-// Random utilities
+// Buffer utilities
+
+// Encode `val` of size `nbytes` little-endian into `buf` at `ptr` and return
+// `ptr+nbytes`.
 
 func put(buf []uint8, ptr int, nbytes int, val uint) int {
 	for nbytes > 0 {
@@ -459,6 +499,9 @@ func put(buf []uint8, ptr int, nbytes int, val uint) int {
 	}
 	return ptr
 }
+
+// Decode `val` of size `nbytes` little-endian from `buf` at `ptr` and return
+// `val` and `ptr+nbytes`.
 
 func get(buf []uint8, ptr int, nbytes int) (val uint, newPtr int) {
 	shift := 0
