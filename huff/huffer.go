@@ -1,9 +1,9 @@
 // Huffman compressor / decompressor
 //
-// huff compress [-o outfile] filename
+// huffer compress [-o outfile] filename
 //   Creates outfile, or if no -o option, filename.huff
 //
-// huff decompress [-o outfile] filename.huff
+// huffer decompress [-o outfile] filename.huff
 //   Creates outfile, or if no -o option, filename
 //
 // Since this is a programming exercise, it works by reading 64KB blocks and
@@ -36,7 +36,7 @@ import (
 	"strings"
 )
 
-var usage string = "Usage: huff [compress|decompress] [-o outfilename] infilename"
+var usage string = "Usage: huffer [compress|decompress] [-o outfilename] infilename"
 
 func main() {
 	args := os.Args[1:]

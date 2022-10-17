@@ -1,3 +1,3 @@
-module huff
+module huffer
 
 go 1.19
