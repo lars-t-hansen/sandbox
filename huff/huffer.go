@@ -53,6 +53,7 @@ func main() {
 
 	args := os.Args
 
+	// Glean operation from program name if possible.
 	{
 		components := strings.Split(args[0], "/")
 		progname := components[len(components)-1]
@@ -64,18 +65,19 @@ func main() {
 		args = args[1:]
 	}
 
+	// Parse command if not known.
 	if !isCompress && !isDecompress {
 		if args[0] == "compress" {
 			isCompress = true
-			args = args[1:]
 		} else if args[0] == "decompress" {
 			isDecompress = true
-			args = args[1:]
 		} else {
 			err = huffError(usage)
 		}
+		args = args[1:]
 	}
 
+	// Parse remaining arguments.
 	if err == nil {
 		if len(args) == 3 {
 			if args[0] == "-o" {
@@ -95,6 +97,8 @@ func main() {
 					outFilename = inFilename[:len(inFilename)-5]
 				}
 			}
+		} else {
+			err = huffError(usage)
 		}
 	}
 
