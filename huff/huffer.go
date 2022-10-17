@@ -6,6 +6,9 @@
 // huffer decompress [-o outfile] filename.huff
 //   Creates outfile, or if no -o option, filename
 //
+// If invoked by the name `huff`, it acts as `huffer compress`.  If invoked by
+// the name `puff`, it acts as `huffer decompress`.
+//
 // Since this is a programming exercise, it works by reading 64KB blocks and
 // compressing them individually; the output file consists of compressed blocks.
 // Also, we don't care about micro-efficiencies in representing the dictionary
@@ -36,61 +39,78 @@ import (
 	"strings"
 )
 
+type huffError string
+
+func (e huffError) Error() string {
+	return string(e)
+}
+
 var usage string = "Usage: huffer [compress|decompress] [-o outfilename] infilename"
 
 func main() {
-	args := os.Args[1:]
 	var err error
-	if args[0] == "compress" {
-		var inFilename, outFilename string
-		if len(args) == 2 {
-			inFilename = args[1]
-			outFilename = inFilename + ".huff"
-		} else if len(args) == 4 {
-			if args[1] == "-o" {
-				inFilename = args[3]
-				outFilename = args[2]
+	var isCompress, isDecompress bool
+	var inFilename, outFilename string
+
+	args := os.Args
+
+	{
+		components := strings.Split(args[0], "/")
+		progname := components[len(components)-1]
+		if progname == "huff" {
+			isCompress = true
+		} else if progname == "puff" {
+			isDecompress = true
+		}
+		args = args[1:]
+	}
+
+	if !isCompress && !isDecompress {
+		if args[0] == "compress" {
+			isCompress = true
+			args = args[1:]
+		} else if args[0] == "decompress" {
+			isDecompress = true
+			args = args[1:]
+		} else {
+			err = huffError(usage)
+		}
+	}
+
+	if err == nil {
+		if len(args) == 3 {
+			if args[0] == "-o" {
+				outFilename = args[1]
+				inFilename = args[2]
 			} else {
 				err = huffError(usage)
 			}
+		} else if len(args) == 1 {
+			inFilename = args[0]
+			if isCompress {
+				outFilename = inFilename + ".huff"
+			} else {
+				if !strings.HasSuffix(inFilename, ".huff") {
+					err = huffError("File to decompress must be named something.huff")
+				} else {
+					outFilename = inFilename[:len(inFilename)-5]
+				}
+			}
 		}
-		if err == nil {
+	}
+
+	if err == nil {
+		if isCompress {
 			err = compressFile(inFilename, outFilename)
-		}
-	} else if args[0] == "decompress" {
-		var inFilename, outFilename string
-		if len(args) == 2 {
-			inFilename = args[1]
-			if !strings.HasSuffix(inFilename, ".huff") {
-				err = huffError("File to decompress must be named something.huff")
-			} else {
-				outFilename = inFilename[:len(inFilename)-5]
-			}
-		} else if len(args) == 4 {
-			if args[1] == "-o" {
-				inFilename = args[3]
-				outFilename = args[2]
-			} else {
-				err = huffError(usage)
-			}
-		}
-		if err == nil {
+		} else {
 			err = decompressFile(inFilename, outFilename)
 		}
-	} else {
-		err = huffError(usage)
 	}
 
 	if err != nil {
 		os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(1)
 	}
-}
-
-type huffError string
-
-func (e huffError) Error() string {
-	return string(e)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
