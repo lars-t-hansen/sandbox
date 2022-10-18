@@ -31,6 +31,7 @@ package main
 
 import (
 	"container/heap"
+	"container/list"
 	"fmt"
 	"io"
 	"os"
@@ -44,6 +45,11 @@ func (e huffError) Error() string {
 	return string(e)
 }
 
+const metasize int = 2 /* freq table size */ +
+	256*5 /* freq table max size */ +
+	4 /* number of input bytes encoded */ +
+	4 /* number of bytes in encoding */
+
 var usage string = "Usage: huffer [compress|decompress] [-o outfilename] infilename"
 
 func main() {
@@ -51,6 +57,7 @@ func main() {
 	var isCompress, isDecompress bool
 	var inFilename, outFilename string
 
+	numWorkers := 4
 	args := os.Args
 
 	// Glean operation from program name if possible.
@@ -104,9 +111,9 @@ func main() {
 
 	if err == nil {
 		if isCompress {
-			err = compressFile(inFilename, outFilename)
+			err = compressFile(numWorkers, inFilename, outFilename)
 		} else {
-			err = decompressFile(inFilename, outFilename)
+			err = decompressFile(numWorkers, inFilename, outFilename)
 		}
 	}
 
@@ -120,7 +127,7 @@ func main() {
 //
 // Compressor
 
-func compressFile(inFilename, outFilename string) error {
+func compressFile(numWorkers int, inFilename, outFilename string) error {
 	inputFile, err := os.Open(inFilename)
 	if err != nil {
 		return huffError("Opening " + inFilename + " for reading: " + err.Error())
@@ -132,58 +139,134 @@ func compressFile(inFilename, outFilename string) error {
 		return huffError("Opening " + outFilename + " for writing: " + err.Error())
 	}
 	defer outputFile.Close()
-	return compressStream(inputFile, outputFile, inFilename, outFilename)
+	return compressStream(numWorkers, inputFile, outputFile, inFilename, outFilename)
 }
 
-func compressStream(inputFile, outputFile *os.File, inputName, outputName string) error {
-	inputBlock := make([]uint8, 65536)
-	outputBlock := make([]uint8, 65536)
-	freqBlock := make([]freqEntry, 256)
-	dict := make(encDict, 256)
-	metasize := 2 /* freq table size */ +
-		256*5 /* freq table max size */ +
-		4 /* number of input bytes encoded */ +
-		4 /* number of bytes in encoding */
-	metadata := make([]uint8, metasize)
+type workItem struct {
+	// Bookkeeping
+	id int
+
+	// Input
+	inputBlock  []uint8
+	outputBlock []uint8
+	freqBlock   []freqEntry
+	dict        encDict
+	metaBlock   []uint8
+	bytesRead   int
+
+	// Output
+	metadata []uint8 // points into metaBlock
+	encoded  []uint8 // is either the same as input or points into outputBlock
+}
+
+func compressStream(numWorkers int, inputFile, outputFile *os.File, inputName, outputName string) error {
+	// todoChan communicates work from the reader to the compressors.
+	todoChan := make(chan *workItem, numWorkers)
+
+	// doneChan communicates completed work from the compressors to the writer.
+	doneChan := make(chan *workItem, numWorkers)
+
+	// signalChan communicates free blocks and errors from the writer to the reader.
+	signalChan := make(chan any) // (*workItem | err)
+
+	// Start workers
+	for i := 0; i < numWorkers; i++ {
+		go compressorWorkerLoop(todoChan, doneChan)
+	}
+	go writerWorkerLoop(outputName, outputFile, true /* writeMetadata */, doneChan, signalChan)
+
+	// Reusable memory, as these tend to be "large"
+	var freeItems list.List
+	for i := 0; i < numWorkers+1; i++ {
+		freeItems.PushBack(&workItem{
+			inputBlock:  make([]uint8, 65536),
+			outputBlock: make([]uint8, 65536),
+			freqBlock:   make([]freqEntry, 256),
+			dict:        make(encDict, 256),
+			metaBlock:   make([]uint8, metasize),
+		})
+	}
+
+	var nextReadId int
+	var itemsWritten int
+	var err error
+	var atEof bool
+readLoop:
 	for {
-		bytesRead, err := inputFile.Read(inputBlock)
-		if bytesRead == 0 && err == io.EOF {
-			break
+		// Read and distribute work to compressor workers
+		for !atEof && freeItems.Front() != nil {
+			it := freeItems.Remove(freeItems.Front()).(*workItem)
+			it.bytesRead, err = inputFile.Read(it.inputBlock)
+			if it.bytesRead == 0 && err == io.EOF {
+				freeItems.PushBack(it)
+				atEof = true
+				err = nil
+				continue readLoop
+			}
+			if err != nil {
+				err = huffError("Reading input from " + inputName + ": " + err.Error())
+				break readLoop
+			}
+			it.id = nextReadId
+			nextReadId++
+			todoChan <- it
 		}
-		if err != nil {
-			return huffError("Reading input from " + inputName + ": " + err.Error())
+
+		// Get responses from the writer worker
+		sig := <-signalChan
+		switch x := sig.(type) {
+		case nil:
+			// Writer thread is done and has closed the signal channel, this really
+			// should not happen, as it should not exit until the doneChan is closed
+			// below.
+			panic("Writer thread exited prematurely")
+		case *workItem:
+			// Writer has written data from this item, it's free for reuse
+			freeItems.PushBack(x)
+			itemsWritten++
+			if atEof && itemsWritten == nextReadId {
+				break readLoop
+			}
+		case error:
+			// Writer signals error
+			err = x
+			break readLoop
 		}
-		input := inputBlock[:bytesRead]
-		freq := computeFrequencies(input, freqBlock)
+	}
+
+	close(todoChan)
+	close(doneChan)
+
+	return err
+}
+
+func compressorWorkerLoop(todoChan, doneChan chan *workItem) {
+	for it := <-todoChan; it != nil; it = <-todoChan {
+		input := it.inputBlock[:it.bytesRead]
+		freq := computeFrequencies(input, it.freqBlock)
 		tree := buildHuffTree(freq)
-		var encoded []uint8
-		if populateEncDict(0, 0, tree, dict) {
-			encoded = compressBlock(dict, input, outputBlock)
+		it.encoded = nil
+		if populateEncDict(0, 0, tree, it.dict) {
+			it.encoded = compressBlock(it.dict, input, it.outputBlock)
 		}
 		metaloc := 0
-		if encoded != nil {
+		metadata := it.metaBlock
+		if it.encoded != nil {
 			metaloc = put(metadata, metaloc, 2, uint(len(freq)))
 			for _, item := range freq {
 				metaloc = put(metadata, metaloc, 1, uint(item.val))
 				metaloc = put(metadata, metaloc, 4, uint(item.count))
 			}
-			metaloc = put(metadata, metaloc, 4, uint(bytesRead))
-			metaloc = put(metadata, metaloc, 4, uint(len(encoded)))
+			metaloc = put(metadata, metaloc, 4, uint(it.bytesRead))
+			metaloc = put(metadata, metaloc, 4, uint(len(it.encoded)))
 		} else {
 			metaloc = put(metadata, metaloc, 2, 0)
-			metaloc = put(metadata, metaloc, 4, uint(bytesRead))
-			encoded = input
+			metaloc = put(metadata, metaloc, 4, uint(it.bytesRead))
+			it.encoded = input
 		}
-		_, err = outputFile.Write(metadata[:metaloc])
-		if err != nil {
-			return huffError("Writing metadata to " + outputName + ": " + err.Error())
-		}
-		_, err = outputFile.Write(encoded)
-		if err != nil {
-			return huffError("Writing output to " + outputName + ": " + err.Error())
-		}
+		it.metadata = metadata[:metaloc]
+		doneChan <- it
 	}
-	return nil
 }
 
 // Process the block and emit bits into the output block.  The bits are output by inserting them
@@ -273,7 +356,7 @@ func doPopulateEncDict(width int, bits uint64, tree *huffTree, dict encDict) boo
 //
 // Decompressor
 
-func decompressFile(inFilename, outFilename string) error {
+func decompressFile(numWorkers int, inFilename, outFilename string) error {
 	inputFile, err := os.Open(inFilename)
 	if err != nil {
 		return huffError("Opening " + inFilename + " for reading: " + err.Error())
@@ -285,17 +368,13 @@ func decompressFile(inFilename, outFilename string) error {
 		return huffError("Opening " + outFilename + " for writing: " + err.Error())
 	}
 	defer outputFile.Close()
-	return decompressStream(inputFile, outputFile, inFilename, outFilename)
+	return decompressStream(numWorkers, inputFile, outputFile, inFilename, outFilename)
 }
 
-func decompressStream(inputFile, outputFile *os.File, inputName, outputName string) error {
+func decompressStream(numWorkers int, inputFile, outputFile *os.File, inputName, outputName string) error {
 	inputBlock := make([]uint8, 65536)
 	outputBlock := make([]uint8, 65536)
 	freqBlock := make([]freqEntry, 256)
-	metasize := 2 /* freq table size */ +
-		256*5 /* freq table max size */ +
-		4 /* number of input bytes encoded */ +
-		4 /* number of bytes in encoding */
 	metadata := make([]uint8, metasize)
 	for {
 		bytesRead, err := inputFile.Read(metadata[0:2])
@@ -398,6 +477,72 @@ func decompressBlock(tree *huffTree, bytesEncoded uint, input []uint8, output []
 		}
 	}
 	return output[:outPtr]
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
+//
+// Common writer thread
+
+// doneChan transports completed work items, to be written; it must yield a nil item once there is
+// no more work.  signalChan transports unused items and other termination signals back to the master.
+//
+// signalChanType = (*workItem | error | nil)
+
+func writerWorkerLoop(outputName string, outputFile *os.File, writeMetadata bool, doneChan chan *workItem, signalChan chan any) {
+	var doneItems list.List // Ordered by ascending id
+	var nextWriteId int     // Done item we need to write next
+	var err error
+
+workerLoop:
+	for {
+		// Obtain a completed item; if we see nil there's nothing more to process.  The
+		// previous loop iteration should have drained the queue.
+		it := <-doneChan
+		if it == nil {
+			break workerLoop
+		}
+
+		// Insert item at the right spot in list of done items
+		var p *list.Element
+		for p = doneItems.Front(); p != nil && p.Value.(*workItem).id < it.id; p = p.Next() {
+		}
+		if p == nil {
+			doneItems.PushBack(it)
+		} else {
+			doneItems.InsertBefore(it, p)
+		}
+
+		// Write output if available.  The encoder threads have created both the encoded block
+		// and its metadata.
+		for doneItems.Front() != nil {
+			it := doneItems.Front().Value.(*workItem)
+			if it.id != nextWriteId {
+				break
+			}
+			doneItems.Remove(doneItems.Front())
+			if writeMetadata {
+				_, err = outputFile.Write(it.metadata)
+				if err != nil {
+					err = huffError("Writing metadata to " + outputName + ": " + err.Error())
+					break workerLoop
+				}
+			}
+			_, err = outputFile.Write(it.encoded)
+			if err != nil {
+				err = huffError("Writing output to " + outputName + ": " + err.Error())
+				break workerLoop
+			}
+			signalChan <- it
+			nextWriteId++
+		}
+	}
+	if err == nil && doneItems.Front() != nil {
+		err = huffError("Inconsistent state in writer: blocks to be written yet pipeline drained")
+	}
+	if err != nil {
+		signalChan <- err
+	}
+	close(signalChan)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
