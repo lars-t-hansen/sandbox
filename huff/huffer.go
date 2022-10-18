@@ -27,8 +27,6 @@
 //   number of bytes: u32 (really max 65536)
 //   bytes, the number of which is encoded by previous field
 
-// TODO: The way values are grouped and passed via the workItem is not totally clean.
-
 package main
 
 import (
@@ -149,10 +147,40 @@ func compressFile(numWorkers int, inFilename, outFilename string) error {
 func compressStream(numWorkers int, inputFile, outputFile *os.File, inputName, outputName string) error {
 	return performConcurrentWork(
 		numWorkers, inputFile, outputFile, inputName, outputName,
-		compressorReader, compressorWriter, compressorWorker)
+		newCompressorItem)
 }
 
-func compressorReader(inputFile *os.File, it *workItem) (atEof bool, err error) {
+type compressorItem struct /* implements workItem */ {
+	// Data for concurrency framework
+	id int
+
+	// Storage
+	inputBlock  []uint8
+	outputBlock []uint8
+	metaBlock   []uint8
+	freqBlock   []freqEntry
+	dict        encDict
+
+	// Results
+	bytesRead int
+	metadata  []uint8
+	encoded   []uint8
+}
+
+func newCompressorItem() workItem {
+	return &compressorItem{
+		inputBlock:  make([]uint8, 65536),
+		outputBlock: make([]uint8, 65536),
+		metaBlock:   make([]uint8, metasize),
+		freqBlock:   make([]freqEntry, 256),
+		dict:        make(encDict, 256),
+	}
+}
+
+func (it *compressorItem) Id() int      { return it.id }
+func (it *compressorItem) SetId(id int) { it.id = id }
+
+func (it *compressorItem) Read(inputFile *os.File) (atEof bool, err error) {
 	it.bytesRead, err = inputFile.Read(it.inputBlock)
 	if err != nil {
 		if it.bytesRead == 0 && err == io.EOF {
@@ -163,7 +191,7 @@ func compressorReader(inputFile *os.File, it *workItem) (atEof bool, err error) 
 	return
 }
 
-func compressorWriter(outputFile *os.File, it *workItem) (err error) {
+func (it *compressorItem) Write(outputFile *os.File) (err error) {
 	_, err = outputFile.Write(it.metadata)
 	if err == nil {
 		_, err = outputFile.Write(it.encoded)
@@ -171,7 +199,7 @@ func compressorWriter(outputFile *os.File, it *workItem) (err error) {
 	return
 }
 
-func compressorWorker(it *workItem) {
+func (it *compressorItem) Work() {
 	input := it.inputBlock[:it.bytesRead]
 	freq := computeFrequencies(input, it.freqBlock)
 	tree := buildHuffTree(freq)
@@ -299,15 +327,44 @@ func decompressFile(numWorkers int, inFilename, outFilename string) error {
 	return decompressStream(numWorkers, inputFile, outputFile, inFilename, outFilename)
 }
 
+type decompressorItem struct /* implements workItem */ {
+	// Data for concurrency framework
+	id int
+
+	// Storage
+	inputBlock  []uint8
+	outputBlock []uint8
+	metaBlock   []uint8
+	freqBlock   []freqEntry
+
+	// Results
+	bytesRead    int
+	encoded      []uint8
+	freqCount    uint
+	bytesEncoded uint
+}
+
+func newDecompressorItem() workItem {
+	return &decompressorItem{
+		inputBlock:  make([]uint8, 65536),
+		outputBlock: make([]uint8, 65536),
+		metaBlock:   make([]uint8, metasize),
+		freqBlock:   make([]freqEntry, 256),
+	}
+}
+
 func decompressStream(numWorkers int, inputFile, outputFile *os.File, inputName, outputName string) error {
 	return performConcurrentWork(
 		numWorkers,
 		inputFile, outputFile,
 		inputName, outputName,
-		decompressorReader, decompressorWriter, decompressorWorker)
+		newDecompressorItem)
 }
 
-func decompressorReader(inputFile *os.File, it *workItem) (atEof bool, err error) {
+func (it *decompressorItem) Id() int      { return it.id }
+func (it *decompressorItem) SetId(id int) { it.id = id }
+
+func (it *decompressorItem) Read(inputFile *os.File) (atEof bool, err error) {
 	it.bytesRead, err = inputFile.Read(it.metaBlock[0:2])
 	if it.bytesRead == 0 && err == io.EOF {
 		atEof = true
@@ -365,12 +422,12 @@ func decompressorReader(inputFile *os.File, it *workItem) (atEof bool, err error
 	return
 }
 
-func decompressorWriter(outputFile *os.File, it *workItem) (err error) {
+func (it *decompressorItem) Write(outputFile *os.File) (err error) {
 	_, err = outputFile.Write(it.encoded)
 	return
 }
 
-func decompressorWorker(it *workItem) {
+func (it *decompressorItem) Work() {
 	input := it.inputBlock[:it.bytesRead]
 	if it.freqCount > 0 {
 		freq := it.freqBlock[:int(it.freqCount)]
@@ -519,67 +576,59 @@ func computeFrequencies(input []uint8, ft freqTable) freqTable {
 /////////////////////////////////////////////////////////////////////////////////////
 //
 // Concurrency framework
-//
-// This is specialized to the use case at hand but could be generalized by representing
-// reader, writer, and worker by methods on an interface and encapsulating the structure
-// of workItem somehow.  All the framework cares about is the id field.
 
 // The workItem is sent between goroutines and holds input and output and other status
 // values.
-type workItem struct {
-	// Bookkeeping used by the concurrency framework.
-	id int
 
-	// Input
-	inputBlock   []uint8
-	outputBlock  []uint8
-	freqBlock    []freqEntry
-	dict         encDict
-	metaBlock    []uint8
-	bytesRead    int
-	bytesEncoded uint
-	freqCount    uint
-
-	// Output
-	metadata []uint8 // points into metaBlock
-	encoded  []uint8 // is either the same as input or points into outputBlock
+type workItem interface {
+	Id() (id int)
+	SetId(id int)
+	Read(*os.File) (atEof bool, err error)
+	Work()
+	Write(*os.File) (err error)
 }
 
 func performConcurrentWork(
 	numWorkers int,
 	inputFile, outputFile *os.File,
 	inputName, outputName string,
-	reader func(*os.File, *workItem) (bool, error),
-	writer func(*os.File, *workItem) error,
-	work func(*workItem)) error {
+	newItem func() workItem) error {
 	// todoChan communicates work from the reader to the compressors.
-	todoChan := make(chan *workItem, numWorkers)
+	todoChan := make(chan workItem, numWorkers)
 
 	// doneChan communicates completed work from the compressors to the writer.
-	doneChan := make(chan *workItem, numWorkers)
+	doneChan := make(chan workItem, numWorkers)
 
 	// signalChan communicates free blocks and errors from the writer to the reader.
-	signalChan := make(chan any) // (*workItem | err)
+	signalChan := make(chan any) // (workItem | err)
 
 	// Start workers and writer thread
 	for i := 0; i < numWorkers; i++ {
-		go workerLoop(todoChan, doneChan, work)
+		go workerLoop(todoChan, doneChan)
 	}
-	go writerWorkerLoop(outputName, outputFile, writer, doneChan, signalChan)
+	go writerLoop(outputName, outputFile, doneChan, signalChan)
 
-	// Reusable memory, as these tend to be "large".
+	// Reusable memory, as these tend to be "large".  We add 2 to allow the reader to
+	// read ahead and the writer not to block the reading.
 
 	var freeItems list.List
-	for i := 0; i < numWorkers+1; i++ {
-		freeItems.PushBack(&workItem{
-			inputBlock:  make([]uint8, 65536),
-			outputBlock: make([]uint8, 65536),
-			freqBlock:   make([]freqEntry, 256),
-			dict:        make(encDict, 256),
-			metaBlock:   make([]uint8, metasize),
-		})
+	for i := 0; i < numWorkers+2; i++ {
+		freeItems.PushBack(newItem())
 	}
 
+	err := readerLoop(&freeItems, inputFile, todoChan, signalChan)
+
+	close(todoChan)
+	close(doneChan)
+
+	return err
+}
+
+// I guess technically this is not the "reader" loop, as it also handles signals from the
+// writer re status and free items, but prying those two apart isn't going to reduce any
+// complexity, as the free list needs to be concurrent and I don't want to add a lock here.
+
+func readerLoop(freeItems *list.List, inputFile *os.File, todoChan chan workItem, signalChan chan any) error {
 	var nextReadId int
 	var itemsWritten int
 	var err error
@@ -588,13 +637,13 @@ readLoop:
 	for {
 		// Read and distribute work to compressor workers
 		for !atEof && freeItems.Front() != nil {
-			it := freeItems.Remove(freeItems.Front()).(*workItem)
-			atEof, err = reader(inputFile, it)
+			it := freeItems.Remove(freeItems.Front()).(workItem)
+			atEof, err = it.Read(inputFile)
 			if atEof {
 				freeItems.PushBack(it)
 				break
 			}
-			it.id = nextReadId
+			it.SetId(nextReadId)
 			nextReadId++
 			todoChan <- it
 		}
@@ -607,7 +656,7 @@ readLoop:
 			// should not happen, as it should not exit until the doneChan is closed
 			// below.
 			panic("Writer thread exited prematurely")
-		case *workItem:
+		case workItem:
 			// Writer has written data from this item, it's free for reuse
 			freeItems.PushBack(x)
 			itemsWritten++
@@ -621,15 +670,12 @@ readLoop:
 		}
 	}
 
-	close(todoChan)
-	close(doneChan)
-
 	return err
 }
 
-func workerLoop(todoChan, doneChan chan *workItem, work func(*workItem)) {
+func workerLoop(todoChan, doneChan chan workItem) {
 	for it := <-todoChan; it != nil; it = <-todoChan {
-		work(it)
+		it.Work()
 		doneChan <- it
 	}
 }
@@ -637,10 +683,10 @@ func workerLoop(todoChan, doneChan chan *workItem, work func(*workItem)) {
 // doneChan transports completed work items, to be written; it must yield a nil item once there is
 // no more work.  signalChan transports unused items and other termination signals back to the master.
 //
-// signalChanType = (*workItem | error | nil)
+// signalChanType = (workItem | error | nil)
 
-func writerWorkerLoop(outputName string, outputFile *os.File, writer func(*os.File, *workItem) error,
-	doneChan chan *workItem,
+func writerLoop(outputName string, outputFile *os.File,
+	doneChan chan workItem,
 	signalChan chan any) {
 	var doneItems list.List // Ordered by ascending id
 	var nextWriteId int     // Done item we need to write next
@@ -657,7 +703,7 @@ workerLoop:
 
 		// Insert item at the right spot in list of done items
 		var p *list.Element
-		for p = doneItems.Front(); p != nil && p.Value.(*workItem).id < it.id; p = p.Next() {
+		for p = doneItems.Front(); p != nil && p.Value.(workItem).Id() < it.Id(); p = p.Next() {
 		}
 		if p == nil {
 			doneItems.PushBack(it)
@@ -669,12 +715,12 @@ workerLoop:
 		// and its metadata.
 	writeLoop:
 		for doneItems.Front() != nil {
-			it := doneItems.Front().Value.(*workItem)
-			if it.id != nextWriteId {
+			it := doneItems.Front().Value.(workItem)
+			if it.Id() != nextWriteId {
 				break writeLoop
 			}
 			doneItems.Remove(doneItems.Front())
-			err = writer(outputFile, it)
+			err = it.Write(outputFile)
 			if err != nil {
 				err = huffError("Writing to " + outputName + ": " + err.Error())
 				break workerLoop
