@@ -1,0 +1,29 @@
+Notes about a bigger alphabet
+
+A file has runs of n bytes as well as individual bytes; there are obviously many n.  These runs could
+be part of the alphabet to be encoded, further reducing redundancy.
+
+There are several problems:
+
+- how to find the runs
+- how to select the right number of runs to balance the size of the alphabet against bitstring size
+- how to select a run during encoding
+
+For example, consider ABCABA.  This has two instances of AB and one instance each of BC, CA, and BA.
+But it also has lone instances of A (3), B (2), and C (1).  When seeing the first AB, do we want to
+select AB (frequency 2, but two letters, so maybe 2x2=4?) or A (frequency 3)?  Or do we always want
+to be greedy and take the maximal amount we can, without reference to frequency?  Or is there some
+kind of dynamic programming principle at work here and we try to look at all possibilities within
+a small window and select the encoding with the smallest number of bits?
+
+Perhaps a different take on this is to consider the input a stream of two-byte values, without the
+possibility of one-byte values.  (Odd-length inputs can be handled in the metadata.)  This is a less
+powerful idea but possibly worth investigating first.
+
+Shakespeare.txt has 2573 letter pairs and huffer.go has 973, *when counted overlapping*.  When counted
+not-overlapping this drops to 2389 (7% reduction) and 836 (14% reduction).
+
+For pairs that appear rarely it may be a net loss to encode the pair, because it lengthens every other
+bitstring and bloats the dictionary.  At the same time, not to have the pair means encoding the individual
+letters, which has the same effect.  It is only when the number of rarely used pairs exceeds the number
+of individual letters to encode those pairs that it makes sense to start dropping pairs.
