@@ -1,7 +1,7 @@
 // Usage: `runs [options]`
 //   Reads stdin and writes stdout
-//   Computes frequencies of two-byte runs in input and prints them in decreasing
-//     frequency order.
+//   Computes frequencies of overlapping two-byte runs in input and prints
+//     them in decreasing frequency order.
 //
 // Options:
 //   -t n  Print only the top n.  Default=100.  Zero means 'all'
