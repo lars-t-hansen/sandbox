@@ -158,7 +158,7 @@ type compressorItem struct /* implements workItem */ {
 	inputBlock  []uint8
 	outputBlock []uint8
 	metaBlock   []uint8
-	freqBlock   []freqEntry
+	freqBlock   []byteFreqEntry
 	dict        encDict
 
 	// Results
@@ -172,7 +172,7 @@ func newCompressorItem() workItem {
 		inputBlock:  make([]uint8, 65536),
 		outputBlock: make([]uint8, 65536),
 		metaBlock:   make([]uint8, metasize),
-		freqBlock:   make([]freqEntry, 256),
+		freqBlock:   make([]byteFreqEntry, 256),
 		dict:        make(encDict, 256),
 	}
 }
@@ -201,7 +201,7 @@ func (it *compressorItem) Write(outputFile *os.File) (err error) {
 
 func (it *compressorItem) Work() {
 	input := it.inputBlock[:it.bytesRead]
-	freq := computeFrequencies(input, it.freqBlock)
+	freq := byteFreqTable(it.freqBlock).computeByteFrequencies(input)
 	tree := buildHuffTree(freq)
 	it.encoded = nil
 	if populateEncDict(0, 0, tree, it.dict) {
@@ -335,7 +335,7 @@ type decompressorItem struct /* implements workItem */ {
 	inputBlock  []uint8
 	outputBlock []uint8
 	metaBlock   []uint8
-	freqBlock   []freqEntry
+	freqBlock   []byteFreqEntry
 
 	// Results
 	bytesRead    int
@@ -349,7 +349,7 @@ func newDecompressorItem() workItem {
 		inputBlock:  make([]uint8, 65536),
 		outputBlock: make([]uint8, 65536),
 		metaBlock:   make([]uint8, metasize),
-		freqBlock:   make([]freqEntry, 256),
+		freqBlock:   make([]byteFreqEntry, 256),
 	}
 }
 
@@ -395,7 +395,7 @@ func (it *decompressorItem) Read(inputFile *os.File) (atEof bool, err error) {
 		return
 	}
 	var bytesInEncoding uint
-	var freq []freqEntry
+	var freq []byteFreqEntry
 	if it.freqCount > 0 {
 		freq = it.freqBlock[:int(it.freqCount)]
 		for i := 0; i < int(it.freqCount); i++ {
@@ -489,7 +489,7 @@ type huffTree struct {
 // Build a tree from a frequency table sorted in descending order by frequency, for
 // non-zero frequencies only.
 
-func buildHuffTree(ft freqTable) *huffTree {
+func buildHuffTree(ft byteFreqTable) *huffTree {
 	h := newHuffHeap(ft)
 	for h.Len() > 1 {
 		a := heap.Pop(&h).(huffItem)
@@ -511,7 +511,7 @@ type huffItem struct {
 
 type huffHeap []huffItem
 
-func newHuffHeap(ft freqTable) huffHeap {
+func newHuffHeap(ft byteFreqTable) huffHeap {
 	h := make(huffHeap, len(ft))
 	for i, v := range ft {
 		h[i] = huffItem{
@@ -543,21 +543,21 @@ func (ft *huffHeap) Pop() any {
 //
 // Compute byte frequencies
 
-type freqEntry struct {
+type byteFreqEntry struct {
 	val   uint8
 	count uint32
 }
 
-type freqTable []freqEntry
+type byteFreqTable []byteFreqEntry /* implements sort.Interface */
 
-func (ft freqTable) Len() int           { return len(ft) }
-func (ft freqTable) Less(i, j int) bool { return ft[i].count > ft[j].count }
-func (ft freqTable) Swap(i, j int)      { ft[i], ft[j] = ft[j], ft[i] }
+func (ft byteFreqTable) Len() int           { return len(ft) }
+func (ft byteFreqTable) Less(i, j int) bool { return ft[i].count > ft[j].count }
+func (ft byteFreqTable) Swap(i, j int)      { ft[i], ft[j] = ft[j], ft[i] }
 
 // Return a table of (byteValue, frequency) sorted in descending order by frequency,
 // for non-zero frequencies.
 
-func computeFrequencies(input []uint8, ft freqTable) freqTable {
+func (ft byteFreqTable) computeByteFrequencies(input []uint8) byteFreqTable {
 	for i := range ft {
 		ft[i].val = uint8(i)
 		ft[i].count = 0
@@ -572,6 +572,58 @@ func computeFrequencies(input []uint8, ft freqTable) freqTable {
 	}
 	return ft[:i]
 }
+
+/////////////////////////////////////////////////////////////////////////////////////
+//
+// Compute word frequencies where a word is an n-byte byte string, nonoverlapping with
+// other words (and we handle any partial word at the end specially).  n in {2,4,8};
+// for n=1, use computeByteFrequencies.
+//
+// This is harder than byte frequencies because we can't just allocate a big table of
+// counters.  (For n=2 we could do that, actually, and on modern systems even for n=4,
+// but not for n=8.)
+//
+// The frequency "table" that's returned has two sections, one for length-n words and
+// one for individual bytes.  Not every length-n word is always going to be represented
+// in the first part.  During encoding, if a length-n word is not in the list, then
+// there will be individual byte entries for the bytes that would have made up the word.
+// This mechanism also handles a partial word at the end.
+//
+// We implement this as a hash table with limited capacity for the word counters, and a
+// separate table for the byte counters.  Once the hash table reaches capacity, the bottom
+// half entries (by count) are removed, folding those entries into the byte table.
+//
+// The question is, what should the capacity of the hash table be?
+//
+// For n=2, it can be 256^2 = 65536 - ie, we can handle all combinations.
+// For n=4, we can't handle 256^4 entries, and even eg 85^4 is prohibitive.
+//   Here, 85=256/3, or roughly the size of alphabet required for text files
+//   and source code.
+// For n=8, 256^8 is out of the question.
+//
+// Arbitrarily pin the hash table size at 65536 for all word sizes, then.  Since 65537 is
+// prime, we use that instead.
+//
+// We use open hashing with a rehash.  For n=2, the hash value is just the word and
+// no rehash is needed.  For n=4 and n=8, the hash value is the word value mod 65537;
+// the second-level method adds 12345 and mods with 65521.  If the first-level hash
+// in a lookup finds an empty slot or some other value, apply the second-level hash.
+// It will examine the named slot and the next four.  If none has the value then the
+// lookup fails.  When inserting, any empty slot in that range can be used, as can
+// an empty slot on the first-level hash.
+//
+// I guess in essence empty slots are treated as collisions during lookup, since this
+// allows slots to be cleared.  Hits can be fast, but misses do extra work.
+//
+// If we have a hash failure and the table is > 90% full, we purge: find the median
+// count for non-empty elements, then clear every entry whose count is below that.
+//
+// There is still a problem here: an insert can fail at one point but succeed later.
+// I'm not sure what this means.  It's probably relatively benign but I'm not sure
+// that it is.
+//
+// Adaptively, we may find that a given word size causes a lot of failure, and may
+// wish to report back about that.  Maybe the failure rate is interesting in any case.
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
