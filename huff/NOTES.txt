@@ -23,7 +23,18 @@ powerful idea but possibly worth investigating first.
 Shakespeare.txt has 2573 letter pairs and huffer.go has 973, *when counted overlapping*.  When counted
 not-overlapping this drops to 2389 (7% reduction) and 836 (14% reduction).
 
+For some binary data, eg the huffer executable, almost all pairs appear, whether overlapping or
+nonoverlapping.
+
 For pairs that appear rarely it may be a net loss to encode the pair, because it lengthens every other
 bitstring and bloats the dictionary.  At the same time, not to have the pair means encoding the individual
 letters, which has the same effect.  It is only when the number of rarely used pairs exceeds the number
 of individual letters to encode those pairs that it makes sense to start dropping pairs.
+
+When dropping a pair when considering non-overlapping runs, we add both letters to the dictionary.
+We encode on pair boundaries: if a pair is
+not in the dictionary then we encode both letters singly (and they will both be in the dictionary).
+This way the probabilities work out correctly.
+
+TODO: Compile a bag of sample programs and record the compression rates for all of them (and also more 
+abstract readings for the dictionaries)

@@ -158,7 +158,6 @@ type compressorItem struct /* implements workItem */ {
 	inputBlock  []uint8
 	outputBlock []uint8
 	metaBlock   []uint8
-	freqBlock   []byteFreqEntry
 	dict        encDict
 
 	// Results
@@ -172,7 +171,6 @@ func newCompressorItem() workItem {
 		inputBlock:  make([]uint8, 65536),
 		outputBlock: make([]uint8, 65536),
 		metaBlock:   make([]uint8, metasize),
-		freqBlock:   make([]byteFreqEntry, 256),
 		dict:        make(encDict, 256),
 	}
 }
@@ -201,7 +199,7 @@ func (it *compressorItem) Write(outputFile *os.File) (err error) {
 
 func (it *compressorItem) Work() {
 	input := it.inputBlock[:it.bytesRead]
-	freq := byteFreqTable(it.freqBlock).computeByteFrequencies(input)
+	freq := computeWordFrequencies(input, 1)
 	tree := buildHuffTree(freq)
 	it.encoded = nil
 	if populateEncDict(0, 0, tree, it.dict) {
@@ -335,7 +333,6 @@ type decompressorItem struct /* implements workItem */ {
 	inputBlock  []uint8
 	outputBlock []uint8
 	metaBlock   []uint8
-	freqBlock   []byteFreqEntry
 
 	// Results
 	bytesRead    int
@@ -349,7 +346,6 @@ func newDecompressorItem() workItem {
 		inputBlock:  make([]uint8, 65536),
 		outputBlock: make([]uint8, 65536),
 		metaBlock:   make([]uint8, metasize),
-		freqBlock:   make([]byteFreqEntry, 256),
 	}
 }
 
@@ -479,44 +475,46 @@ func decompressBlock(tree *huffTree, bytesEncoded uint, input []uint8, output []
 // Create tree representing the Huffman encoding according to the frequency table.
 
 // The branches are either both nil or both not nil.  If not nil then this is an interior
-// node and val is invalid, otherwise it's a leaf.
+// node and val is invalid, otherwise it's a leaf with a value.
 
 type huffTree struct {
 	zero, one *huffTree
-	val       uint8
+	val       huffVal
 }
 
 // Build a tree from a frequency table sorted in descending order by frequency, for
 // non-zero frequencies only.
 
-func buildHuffTree(ft byteFreqTable) *huffTree {
+func buildHuffTree(ft freqTable) *huffTree {
 	h := newHuffHeap(ft)
 	for h.Len() > 1 {
-		a := heap.Pop(&h).(huffItem)
-		b := heap.Pop(&h).(huffItem)
-		heap.Push(&h, huffItem{
+		a := heap.Pop(&h).(huffHeapItem)
+		b := heap.Pop(&h).(huffHeapItem)
+		heap.Push(&h, huffHeapItem{
 			weight: a.weight + b.weight,
 			tree:   &huffTree{zero: a.tree, one: b.tree},
 		})
 	}
-	return heap.Pop(&h).(huffItem).tree
+	return heap.Pop(&h).(huffHeapItem).tree
 }
 
 // Heap of tree nodes, a priority queue used during tree building.
 
-type huffItem struct {
+type huffHeapItem struct {
 	weight uint32
 	tree   *huffTree
 }
 
-type huffHeap []huffItem
+type huffHeap []huffHeapItem
 
-func newHuffHeap(ft byteFreqTable) huffHeap {
-	h := make(huffHeap, len(ft))
-	for i, v := range ft {
-		h[i] = huffItem{
-			weight: v.count,
-			tree:   &huffTree{val: v.val},
+func newHuffHeap(ft freqTable) huffHeap {
+	l := ft.Len()
+	h := make(huffHeap, l)
+	for i := 0; i < l; i++ {
+		val, count := ft.At(i)
+		h[i] = huffHeapItem{
+			weight: count,
+			tree:   &huffTree{val: val},
 		}
 	}
 	heap.Init(&h)
@@ -528,7 +526,7 @@ func (h huffHeap) Less(i, j int) bool { return h[i].weight < h[j].weight }
 func (h huffHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 
 func (ft *huffHeap) Push(x any) {
-	*ft = append(*ft, x.(huffItem))
+	*ft = append(*ft, x.(huffHeapItem))
 }
 
 func (ft *huffHeap) Pop() any {
@@ -541,7 +539,20 @@ func (ft *huffHeap) Pop() any {
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
-// Compute byte frequencies
+// Compute substring frequencies.
+
+// A `freqTable` logically holds a set of (substring, frequency) pairs.  The substrings
+// are of varying byte widths: 1, 2, 4, or 8.  Some substrings may be proper prefixes of
+// other substrings in the table.
+//
+// The concrete representation is a slice of substrings of the given width together
+// with a possibly-nil pointer to a subtable of substrings of a strictly smaller width;
+// for width=1, `subtable` must be nil.
+
+type huffVal struct {
+	value uint64 // High bytes are zero-padded
+	width int    // Byte width: 1, 2, 4, 8
+}
 
 type byteFreqEntry struct {
 	val   uint8
@@ -624,6 +635,65 @@ func (ft byteFreqTable) computeByteFrequencies(input []uint8) byteFreqTable {
 //
 // Adaptively, we may find that a given word size causes a lot of failure, and may
 // wish to report back about that.  Maybe the failure rate is interesting in any case.
+
+type freqTable struct {
+	width    int
+	values   freqSortable
+	subtable *freqTable
+}
+
+type freqEntry struct {
+	val   uint64
+	count uint32
+}
+
+type freqSortable []freqEntry /* implements sort.Interface */
+
+func (ft freqSortable) Len() int           { return len(ft) }
+func (ft freqSortable) Less(i, j int) bool { return ft[i].count > ft[j].count }
+func (ft freqSortable) Swap(i, j int)      { ft[i], ft[j] = ft[j], ft[i] }
+
+func computeWordFrequencies(input []uint8, wordWidth int) freqTable {
+	if wordWidth != 1 && wordWidth != 2 && wordWidth != 4 && wordWidth != 8 {
+		panic("Word width constraint")
+	}
+	// maps words to counters
+	maxPop := 65536
+	var wt [4]map[uint64]uint32
+	var num [4]int
+	for i, j := 1, 0; i <= wordWidth; i, j = i*2, j+1 {
+		size := maxPop
+		if i == 1 {
+			size = 256
+		}
+		wt[j] = make(map[uint64]uint32, size)
+		// May only need num at the largest word width?
+		num[j] = len(input) &^ (i - 1)
+	}
+	bt := make(byteSortable, 256)
+	for i := 0; i < numWords; i += wordWidth {
+		w := getWord(input, i)
+		// add to table if new otherwise increment count
+		if isBeingAdded && len(wt) == maxPop {
+			// clear some entries
+			// - bottom half?
+			// - anything with a '1' count?
+			// - anything with a count less than x?
+			// - multiple strategies?
+			// For every cleared item, explode it into bytes and add the bytes
+			// individually to the byte table with the frequency of the removed
+			// entry?
+		}
+		// then add
+	}
+	// extract entries and sort tables and create proper slices
+	sort.Sort(ft)
+	i := 0
+	for i < len(ft) && ft[i].count > 0 {
+		i++
+	}
+	return ft[:i]
+}
 
 /////////////////////////////////////////////////////////////////////////////////////
 //
