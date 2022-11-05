@@ -490,42 +490,53 @@ type huffTree struct {
 // non-zero frequencies only.
 
 func buildHuffTree(ft freqTable) *huffTree {
-	h := newHuffHeap(ft)
+	h, next_serial := newHuffHeap(ft)
 	for h.Len() > 1 {
 		a := heap.Pop(&h).(huffItem)
 		b := heap.Pop(&h).(huffItem)
 		heap.Push(&h, huffItem{
 			weight: a.weight + b.weight,
+			serial: next_serial,
 			tree:   &huffTree{zero: a.tree, one: b.tree},
 		})
+		next_serial++
 	}
 	return heap.Pop(&h).(huffItem).tree
 }
 
-// Heap of tree nodes, a priority queue used during tree building.
+// Heap of tree nodes, a priority queue used during tree building.  For predictable output
+// we have to break ties for equal priorities in a predictable way.  We do this by attaching
+// a serial number to each weight and using that to break ties: lowest serial number has
+// higher priority.
 
 type huffItem struct {
 	weight uint32
+	serial uint32
 	tree   *huffTree
 }
 
 type huffHeap []huffItem
 
-func newHuffHeap(ft freqTable) huffHeap {
+func newHuffHeap(ft freqTable) (huffHeap, uint32) {
+	var next_serial uint32 = 0
 	h := make(huffHeap, len(ft))
 	for i, v := range ft {
 		h[i] = huffItem{
 			weight: v.count,
+			serial: next_serial,
 			tree:   &huffTree{val: v.val},
 		}
+		next_serial++
 	}
 	heap.Init(&h)
-	return h
+	return h, next_serial
 }
 
-func (h huffHeap) Len() int           { return len(h) }
-func (h huffHeap) Less(i, j int) bool { return h[i].weight < h[j].weight }
-func (h huffHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h huffHeap) Len() int { return len(h) }
+func (h huffHeap) Less(i, j int) bool {
+	return h[i].weight < h[j].weight || h[i].weight == h[j].weight && h[i].serial < h[j].serial
+}
+func (h huffHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
 func (ft *huffHeap) Push(x any) {
 	*ft = append(*ft, x.(huffItem))
@@ -550,12 +561,15 @@ type freqEntry struct {
 
 type freqTable []freqEntry
 
-func (ft freqTable) Len() int           { return len(ft) }
-func (ft freqTable) Less(i, j int) bool { return ft[i].count > ft[j].count }
-func (ft freqTable) Swap(i, j int)      { ft[i], ft[j] = ft[j], ft[i] }
+func (ft freqTable) Len() int { return len(ft) }
+func (ft freqTable) Less(i, j int) bool {
+	return ft[i].count > ft[j].count || ft[i].count == ft[j].count && ft[i].val < ft[j].val
+}
+func (ft freqTable) Swap(i, j int) { ft[i], ft[j] = ft[j], ft[i] }
 
 // Return a table of (byteValue, frequency) sorted in descending order by frequency,
-// for non-zero frequencies.
+// for non-zero frequencies.  The sort has to be stable, hence the Less predicate
+// breaks ties by comparing byte values.
 
 func computeFrequencies(input []uint8, ft freqTable) freqTable {
 	for i := range ft {

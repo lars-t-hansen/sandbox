@@ -78,7 +78,6 @@ fn parse_args() -> (bool, bool, String, String) {
         }
     }
     // Parse remaining arguments
-    let in_filename;
     let mut out_filename = String::from("");
     let mut n = args.next().expect("Must have input file");
     let mut have_out_filename = false;
@@ -87,7 +86,7 @@ fn parse_args() -> (bool, bool, String, String) {
         n = args.next().expect("Must have input file");
         have_out_filename = true;
     }
-    in_filename = n;
+    let in_filename = n;
     if is_decompress && !in_filename.ends_with(".huff") {
        // TODO: Also must check that filename is not empty after stripping extension
         panic!("Input file must have extension .huff")
@@ -101,12 +100,11 @@ fn parse_args() -> (bool, bool, String, String) {
         }
     }
 
-    //println!("{} {}", in_filename.as_str(), out_filename.as_str());
-
     (is_compress, is_decompress, in_filename, out_filename)
 }
 
 fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
+    println!("Compressing {} {}", in_filename, out_filename);
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
     compress_stream(&mut input, &mut output)?;
@@ -115,24 +113,27 @@ fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<(
 }
 
 const META_SIZE: usize =
-     2 /* freq table size */ +
+    2 /* freq table size */ +
     256*5 /* freq table max size */ +
     4 /* number of input bytes encoded */ +
     4 /* number of bytes in encoding */;
 
 fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
-    let mut in_buf = Vec::with_capacity(65536);
-    let mut out_buf = Vec::with_capacity(65536);
-    let mut meta_buf = Vec::with_capacity(META_SIZE);
+    // TODO: The buffers are stack allocated - not great.
+    let mut in_buf: [u8; 65536] = [0; 65536];
+    let mut out_buf: [u8; 65536] = [0; 65536];
+    let mut meta_buf: [u8; META_SIZE] = [0; META_SIZE];
+    let mut freq_buf : [FreqEntry; 256] = [FreqEntry{val: 0, count: 0}; 256];
+    let mut dict : [DictItem; 256] = [DictItem { width: 0, bits: 0 }; 256];
     loop {
         let bytes_read = input.read(in_buf.as_mut_slice())?;
+        println!("Read {}", bytes_read);
         if bytes_read == 0 {
             break
         }
         let input = &in_buf.as_slice()[0..bytes_read];
-        let freq = compute_byte_frequencies(input);
-        let tree = build_huffman_tree(freq.as_slice());
-        let mut dict = Vec::with_capacity(256);
+        let freq = compute_byte_frequencies(input, &mut freq_buf);
+        let tree = build_huffman_tree(&freq);
         let have_dict = populate_dict(0, 0, &tree, &mut dict);
         let mut did_encode = false;
         let mut bytes_encoded = 0;
@@ -162,7 +163,7 @@ fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Wri
     Ok(())
 }
 
-fn put(v: &mut Vec<u8>, mut p: usize, mut n: usize, mut val: usize) -> usize {
+fn put(v: &mut [u8], mut p: usize, mut n: usize, mut val: usize) -> usize {
     while n > 0 {
         v[p] = val as u8;
         val >>= 8;
@@ -172,7 +173,7 @@ fn put(v: &mut Vec<u8>, mut p: usize, mut n: usize, mut val: usize) -> usize {
     p
 }
 
-fn compress_block(dict: &Vec<DictItem>, input: &[u8], output: &mut [u8]) -> (bool, usize) {
+fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, usize) {
     let mut outptr = 0;
     let limit = output.len();
     let mut window = 0u64;
@@ -202,14 +203,16 @@ fn decompress_file(in_filename: String, out_filename: String) -> std::io::Result
     panic!("No decompression yet")
 }
 
-// Encoding dictionary, mapping byte values to bit strings.
+// Encoding dictionary, mapping byte values to bit strings.  Only the byte values present in
+// the tree will have valid entries in the dictionary.
 
+#[derive(Clone,Copy)]
 struct DictItem {
-    width: usize,
-    bits: u64
+    bits: u64,      // the bit string, at most 56 bits, padded with zeroes
+    width: usize,   // the number of valid bits
 }
 
-fn populate_dict(width: usize, bits: u64, tree: &Box<HuffTree>, dict: &mut Vec<DictItem>) -> bool {
+fn populate_dict(width: usize, bits: u64, tree: &Box<HuffTree>, dict: &mut [DictItem]) -> bool {
     match &tree.left {
         Some(_) => {
             return populate_dict(width+1, bits, &tree.left.as_ref().expect("LEFT"), dict) &&
@@ -229,7 +232,17 @@ fn populate_dict(width: usize, bits: u64, tree: &Box<HuffTree>, dict: &mut Vec<D
 }
 
 // Huffman tree, representing the encoding of byte values by the bit path to a leaf in the
-// binary tree.
+// binary tree.  If left is not None, then right is also not None and val is invalid;
+// otherwise, this is a leaf and val has the byte value.
+//
+// The priority queue used for building the tree must have a defined behavior when
+// priorities are equal, or there can be no implementation-independent decoding.  To do this,
+// we add a serial number to each node, and ties are broken with lower serial numbers first.
+// For this to yield predictable trees, the input table of frequencies has to be sorted
+// and has to be processed in order of increasing index.
+//
+// Also, the tree has to be built with the left (zero) branch always coming from the first
+// node extracted and the right (one) branch coming from the second branch.
 
 struct HuffTree {
     left: Option<Box<HuffTree>>,
@@ -237,56 +250,73 @@ struct HuffTree {
     val: u8
 }
 
+#[derive(Clone,Copy)]
+struct Weight {
+    serial: u32,
+    weight: u32
+}
+
+fn greater_weight(a: Weight, b: Weight) -> bool {
+    a.weight < b.weight || a.weight == b.weight && a.serial < b.serial
+}
+
 fn build_huffman_tree(freq: &[FreqEntry]) -> Box<HuffTree> {
-    let mut heap = Heap::<Box<HuffTree>, u32>::new(|a, b| a < b );
+    let mut heap = Heap::<Box<HuffTree>, Weight>::new(greater_weight);
+    let mut next_serial = 0u32;
     for i in freq {
         let t = Box::new(HuffTree { val: i.val, left: None, right: None });
-        heap.insert(i.count, t)
+        heap.insert(Weight{serial: next_serial, weight: i.count}, t);
+        next_serial += 1;
     }
     while heap.len() > 1 {
         let (a, wa) = heap.extract_max();
         let (b, wb) = heap.extract_max();
         let t = Box::new(HuffTree { val: 0, left: Some(a), right: Some(b)});
-        heap.insert(wa + wb, t)
+        heap.insert(Weight{serial: next_serial, weight: wa.weight + wb.weight}, t);
+        next_serial += 1;
     }
     heap.extract_max().0
 }
 
-// Byte frequency count.  Returned vector has counts for bytes with non-zero frequencies,
-// in unspecified order
+// Byte frequency count.  The returned slice has counts for bytes with non-zero frequencies
+// only, in descending stably sorted order.  The sorting is necessary for encoding as the order
+// of the table can influence the relative priorities of nodes with equal weights during
+// tree building, and also because the table is emitted into the compressed form and
+// we want the output to be predictable.
 
 #[derive(Clone,Copy)]
 struct FreqEntry {
-    val: u8,
-    count: u32
+    val: u8,    // the byte value
+    count: u32  // its count
 }
 
-fn compute_byte_frequencies(bytes: &[u8]) -> Vec<FreqEntry> {
-    let mut freq = Vec::<FreqEntry>::with_capacity(256);
-
-    for i in 0..256 {
+fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a [FreqEntry] {
+    let mut i = 0;
+    while i < 256 {
         freq[i].val = i as u8;
+        freq[i].count = 0;
+        i += 1;
     }
 
     for i in bytes {
         freq[*i as usize].count += 1;
     }
 
-    // Pack nonzero entries to the start of the vector and discard the zero ones
-    let mut i = 0;
-    let mut j = 0;
-    loop {
-        while j < 256 && freq[j].count == 0 {
-            j += 1;
+    // slice::sort_by is stable and will sort lower byte values before higher values,
+    // for equal counts.
+    freq.sort_by(|x, y| {
+        if x.count > y.count {
+            std::cmp::Ordering::Less
+        } else if x.count < y.count {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
         }
-        if j == 256 {
-            break;
-        }
-        freq[i] = freq[j];
-        i += 1;
-        j += 1;
-    }
-    freq.truncate(i);
+    });
 
-    freq
+    i = 256;
+    while i > 0 && freq[i-1].count == 0 {
+        i -= 1;
+    }
+    &freq[0..i]
 }
