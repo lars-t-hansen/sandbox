@@ -17,7 +17,8 @@
 //
 // A compressed block is represented as
 //   number of dictionary entries: u16 > 0 (max value is really 256)
-//   run of dictionary entries sorted descending by frequency:
+//   run of dictionary entries sorted descending by frequency with ties
+//   broken by lower byte values first:
 //     value: u8
 //     frequency: u32 (max value is really 65536)
 //   number of encoded bytes: u32 (max value is really 65536)
@@ -104,7 +105,6 @@ fn parse_args() -> (bool, bool, String, String) {
 }
 
 fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
-    println!("Compressing {} {}", in_filename, out_filename);
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
     compress_stream(&mut input, &mut output)?;
@@ -119,39 +119,37 @@ const META_SIZE: usize =
     4 /* number of bytes in encoding */;
 
 fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
-    // TODO: The buffers are stack allocated - not great.
-    let mut in_buf: [u8; 65536] = [0; 65536];
-    let mut out_buf: [u8; 65536] = [0; 65536];
-    let mut meta_buf: [u8; META_SIZE] = [0; META_SIZE];
-    let mut freq_buf : [FreqEntry; 256] = [FreqEntry{val: 0, count: 0}; 256];
-    let mut dict : [DictItem; 256] = [DictItem { width: 0, bits: 0 }; 256];
+    let mut in_buf = Box::new([0u8; 65536]);
+    let mut out_buf = Box::new([0u8; 65536]);
+    let mut meta_buf = Box::new([0u8; META_SIZE]);
+    let mut freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
+    let mut dict = Box::new([DictItem {width: 0, bits: 0}; 256]);
     loop {
         let bytes_read = input.read(in_buf.as_mut_slice())?;
-        println!("Read {}", bytes_read);
         if bytes_read == 0 {
             break
         }
         let input = &in_buf.as_slice()[0..bytes_read];
-        let freq = compute_byte_frequencies(input, &mut freq_buf);
+        let freq = compute_byte_frequencies(input, freq_buf.as_mut_slice());
         let tree = build_huffman_tree(&freq);
-        let have_dict = populate_dict(0, 0, &tree, &mut dict);
+        let have_dict = populate_dict(0, 0, &tree, dict.as_mut_slice());
         let mut did_encode = false;
         let mut bytes_encoded = 0;
         if have_dict {
-            (did_encode, bytes_encoded) = compress_block(&dict, input, out_buf.as_mut_slice());
+            (did_encode, bytes_encoded) = compress_block(dict.as_slice(), input, out_buf.as_mut_slice());
         }
         let mut metaloc = 0;
         if did_encode {
-            metaloc = put(&mut meta_buf, metaloc, 2, freq.len());
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, freq.len());
             for item in freq {
-                metaloc = put(&mut meta_buf, metaloc, 1, item.val as usize);
-                metaloc = put(&mut meta_buf, metaloc, 4, item.count as usize);
+                metaloc = put(meta_buf.as_mut_slice(), metaloc, 1, item.val as usize);
+                metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, item.count as usize);
             }
-            metaloc = put(&mut meta_buf, metaloc, 4, bytes_read);
-            metaloc = put(&mut meta_buf, metaloc, 4, bytes_encoded);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_encoded);
         } else {
-            metaloc = put(&mut meta_buf, metaloc, 2, 0);
-            metaloc = put(&mut meta_buf, metaloc, 4, bytes_read);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, 0);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read);
         }
         output.write(&meta_buf.as_slice()[0..metaloc])?;
         if did_encode {
@@ -242,7 +240,7 @@ fn populate_dict(width: usize, bits: u64, tree: &Box<HuffTree>, dict: &mut [Dict
 // and has to be processed in order of increasing index.
 //
 // Also, the tree has to be built with the left (zero) branch always coming from the first
-// node extracted and the right (one) branch coming from the second branch.
+// node extracted and the right (one) branch coming from the second node.
 
 struct HuffTree {
     left: Option<Box<HuffTree>>,
