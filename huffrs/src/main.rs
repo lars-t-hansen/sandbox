@@ -1,6 +1,6 @@
 // Huffman compressor / decompressor
 //
-// (Based on the Go version in `sandbox/huff`)
+// (Based on the Go version in `sandbox/huff`, except this is still not multi-threaded)
 //
 // huffer compress [-o outfile] filename
 // huff [-o outfile] filename
@@ -104,6 +104,12 @@ fn parse_args() -> (bool, bool, String, String) {
     (is_compress, is_decompress, in_filename, out_filename)
 }
 
+const META_SIZE: usize =
+    2 /* freq table size */ +
+    256*5 /* freq table max size */ +
+    4 /* number of input bytes encoded */ +
+    4 /* number of bytes in encoding */;
+
 fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
@@ -111,12 +117,6 @@ fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<(
     output.sync_all()?;
     Ok(())
 }
-
-const META_SIZE: usize =
-    2 /* freq table size */ +
-    256*5 /* freq table max size */ +
-    4 /* number of input bytes encoded */ +
-    4 /* number of bytes in encoding */;
 
 fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
@@ -140,16 +140,16 @@ fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Wri
         }
         let mut metaloc = 0;
         if did_encode {
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, freq.len());
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, freq.len() as u64);
             for item in freq {
-                metaloc = put(meta_buf.as_mut_slice(), metaloc, 1, item.val as usize);
-                metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, item.count as usize);
+                metaloc = put(meta_buf.as_mut_slice(), metaloc, 1, item.val as u64);
+                metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, item.count as u64);
             }
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read);
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_encoded);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read as u64);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_encoded as u64);
         } else {
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, 0);
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, 0u64);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read as u64);
         }
         output.write(&meta_buf.as_slice()[0..metaloc])?;
         if did_encode {
@@ -159,16 +159,6 @@ fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Wri
         }
     }
     Ok(())
-}
-
-fn put(v: &mut [u8], mut p: usize, mut n: usize, mut val: usize) -> usize {
-    while n > 0 {
-        v[p] = val as u8;
-        val >>= 8;
-        n -= 1;
-        p += 1;
-    }
-    p
 }
 
 fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, usize) {
@@ -198,7 +188,123 @@ fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, 
 }
 
 fn decompress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
-    panic!("No decompression yet")
+    let mut input = File::open(in_filename)?;
+    let mut output = File::create(out_filename)?;
+    decompress_stream(&mut input, &mut output)?;
+    output.sync_all()?;
+    Ok(())
+}
+
+fn decompress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
+    let mut in_buf = Box::new([0u8; 65536]);
+    let mut out_buf = Box::new([0u8; 65536]);
+    let mut meta_buf = Box::new([0u8; META_SIZE]);
+    let mut freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
+    loop {
+        let got_metadata = read_bytes(input, 0, 2, meta_buf.as_mut_slice())?;
+        if !got_metadata {
+            break
+        }
+        let mut metaloc = 0;
+        let mut item;
+        (metaloc, item) = get(meta_buf.as_slice(), metaloc, 2);
+        let freq_len = item as usize;
+        let metabytes = if freq_len > 0 { 5*freq_len + 8 } else { 4 };
+        let got_metadata = read_bytes(input, 2, metabytes, meta_buf.as_mut_slice())?;
+        if !got_metadata {
+            panic!("Bad metadata"); // FIXME, return an error
+        }
+        let bytes_encoded;
+        let bytes_to_decode;
+        if freq_len > 0 {
+            let mut freq = &mut freq_buf.as_mut_slice()[..freq_len];
+            let mut i = 0;
+            while i < freq_len {
+                (metaloc, item) = get(meta_buf.as_slice(), metaloc, 1);
+                freq[i].val = item as u8;
+                (metaloc, item) = get(meta_buf.as_slice(), metaloc, 4);
+                freq[i].count = item as u32;
+                i += 1;
+            }
+            (metaloc, item) = get(meta_buf.as_slice(), metaloc, 4);
+            bytes_to_decode = item as usize;
+            (_, item) = get(meta_buf.as_slice(), metaloc, 4);
+            bytes_encoded = item as usize;
+        } else {
+            (_, item) = get(meta_buf.as_slice(), metaloc, 4);
+            bytes_encoded = item as usize;
+            bytes_to_decode = bytes_encoded;
+        }
+        let got_data = read_bytes(input, 0, bytes_encoded as usize, in_buf.as_mut_slice())?;
+        if !got_data {
+            panic!("Bad data"); // FIXME
+        }
+        let to_write;
+        if freq_len > 0 {
+            let freq = &freq_buf.as_slice()[..freq_len];
+            let tree = build_huffman_tree(&freq);
+            let bytes_decoded = decompress_block(&tree, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
+            to_write = &out_buf.as_slice()[..bytes_decoded]
+        } else {
+            to_write = &in_buf.as_slice()[..bytes_encoded]
+        }
+        // TODO: Can we write partial data?
+        output.write(to_write)?;
+    }
+    Ok(())
+}
+
+fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8], out_buf: &mut [u8]) -> usize {
+    let mut outptr = 0;
+    let mut inptr = 0;
+    let mut inbyte = 0u8;
+    let mut inwidth = 0;
+    let mut t = tree;
+    loop {
+        match (&t.left, &t.right) {
+            (None, None) => {
+                out_buf[outptr] = t.val;
+                outptr += 1;
+                if outptr == bytes_to_decode {
+                    break
+                }
+                t = tree;
+            }
+            (&Some(ref zero), &Some(ref one)) => {
+                if inwidth == 0 {
+                    inbyte = in_buf[inptr];
+                    inptr += 1;
+                    inwidth = 8;
+                }
+                let bit = inbyte & 1;
+                inbyte >>= 1;
+                inwidth -= 1;
+                t = if bit == 0 { zero } else { one };
+            }
+            _ => {
+                panic!("Should not happen")
+            }
+        }
+    }
+    outptr
+}
+
+// Returns true if we got n bytes, false if we got zero bytes (orderly EOF), otherwise
+// an error.
+
+fn read_bytes(input: &mut dyn std::io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> std::io::Result<bool> {
+    let mut bytes_read = 0;
+    while bytes_read < nbytes {
+        let n = input.read(&mut buf[atloc+bytes_read..atloc+nbytes])?;
+        if n == 0 {
+            if bytes_read == 0 {
+                return Ok(false)
+            }
+            panic!("Premature EOF");  // FIXME
+        }
+        bytes_read += n;
+    }
+    Ok(true)
 }
 
 // Encoding dictionary, mapping byte values to bit strings.  Only the byte values present in
@@ -318,3 +424,33 @@ fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a 
     }
     &freq[0..i]
 }
+
+// Utilities
+
+// Read n-byte value little-endian from stream at location p, return new location and
+// the value read.
+
+fn get(v: &[u8], mut p: usize, mut n: usize) -> (usize, u64) {
+    let mut val : u64 = 0;
+    let mut k = 0;
+    while n > 0 {
+        val = val | ((v[p] as u64) << k);
+        k += 8;
+        p += 1;
+        n -= 1;
+    }
+    (p, val)
+}
+
+// Write n-byte value little-endian to stream, return location.
+
+fn put(v: &mut [u8], mut p: usize, mut n: usize, mut val: u64) -> usize {
+    while n > 0 {
+        v[p] = val as u8;
+        val >>= 8;
+        n -= 1;
+        p += 1;
+    }
+    p
+}
+
