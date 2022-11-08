@@ -214,53 +214,63 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
         if !got_metadata {
             break
         }
-        let mut metaloc = 0;
-        let mut item;
-        (metaloc, item) = get(meta_buf.as_slice(), metaloc, 2);
+        let (_, item) = get(meta_buf.as_slice(), 0, 2);
         let freq_len = item as usize;
         let metabytes = if freq_len > 0 { 5*freq_len + 8 } else { 4 };
         let got_metadata = read_bytes(input, 2, metabytes, meta_buf.as_mut_slice())?;
         if !got_metadata {
             return Err(io::Error::new(io::ErrorKind::Other, "Bad metadata"));
         }
-        let bytes_encoded;
-        let bytes_to_decode;
-        if freq_len > 0 {
-            let mut freq = &mut freq_buf.as_mut_slice()[..freq_len];
-            let mut i = 0;
-            while i < freq_len {
-                (metaloc, item) = get(meta_buf.as_slice(), metaloc, 1);
-                freq[i].val = item as u8;
-                (metaloc, item) = get(meta_buf.as_slice(), metaloc, 4);
-                freq[i].count = item as u32;
-                i += 1;
-            }
-            (metaloc, item) = get(meta_buf.as_slice(), metaloc, 4);
-            bytes_to_decode = item as usize;
-            (_, item) = get(meta_buf.as_slice(), metaloc, 4);
-            bytes_encoded = item as usize;
-        } else {
-            (_, item) = get(meta_buf.as_slice(), metaloc, 4);
-            bytes_encoded = item as usize;
-            bytes_to_decode = bytes_encoded;
-        }
+        let (freq, bytes_encoded, bytes_to_decode) = decode_metadata(&meta_buf.as_slice()[2..], freq_len, freq_buf.as_mut_slice());
         let got_data = read_bytes(input, 0, bytes_encoded as usize, in_buf.as_mut_slice())?;
         if !got_data {
             return Err(io::Error::new(io::ErrorKind::Other, "Bad data"));
         }
-        let to_write;
-        if freq_len > 0 {
-            let freq = &freq_buf.as_slice()[..freq_len];
-            let tree = build_huffman_tree(&freq);
-            decompress_block(&tree, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
-            to_write = &out_buf.as_slice()[..bytes_to_decode]
-        } else {
-            to_write = &in_buf.as_slice()[..bytes_to_decode]
-        }
+        let out_data = decode_block(freq, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
         // TODO: Can we write partial data?
-        output.write(to_write)?;
+        output.write(out_data)?;
     }
     Ok(())
+}
+
+// This will return a freq of length zero if there is no decoding to be done.
+
+fn decode_metadata<'a>(metadata: &[u8], freq_len: usize, freq_buf: &'a mut [FreqEntry]) -> 
+        (/* freq */ &'a [FreqEntry], /* bytes_encoded */ usize, /* bytes_to_decode */ usize) {
+    let bytes_encoded;
+    let bytes_to_decode;
+    let mut freq = &mut freq_buf[..freq_len];
+    let mut metaloc = 0;
+    let mut item : u64;
+    if freq_len > 0 {
+        let mut i = 0;
+        while i < freq_len {
+            (metaloc, item) = get(metadata, metaloc, 1);
+            freq[i].val = item as u8;
+            (metaloc, item) = get(metadata, metaloc, 4);
+            freq[i].count = item as u32;
+            i += 1;
+        }
+        (metaloc, item) = get(metadata, metaloc, 4);
+        bytes_to_decode = item as usize;
+        (_, item) = get(metadata, metaloc, 4);
+        bytes_encoded = item as usize;
+    } else {
+        (_, item) = get(metadata, metaloc, 4);
+        bytes_encoded = item as usize;
+        bytes_to_decode = bytes_encoded;
+    }
+    (freq, bytes_encoded, bytes_to_decode)
+}
+
+fn decode_block<'a>(freq: &[FreqEntry], bytes_to_decode: usize, in_buf: &'a [u8], out_buf: &'a mut [u8]) -> &'a [u8] {
+    if freq.len() > 0 {
+        let tree = build_huffman_tree(&freq);
+        decompress_block(&tree, bytes_to_decode, in_buf, out_buf);
+        return &out_buf[..bytes_to_decode]
+    }
+    assert!(bytes_to_decode == in_buf.len());
+    in_buf
 }
 
 fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8], out_buf: &mut [u8]) {
