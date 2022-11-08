@@ -33,10 +33,13 @@
 mod heap;
 
 use std::fs::File;
-use crate::heap::*;
+use std::{cmp,env,io};
 
 fn main() {
-    let (is_compress, _, in_filename, out_filename) = parse_args();
+    let (is_compress, _, in_filename, out_filename) = match parse_args() {
+        Ok(x) => x,
+        Err(e) => { panic!("{}", e) }
+    };
     let res = if is_compress {
         compress_file(in_filename, out_filename)
     } else {
@@ -48,13 +51,13 @@ fn main() {
     }
 }
 
-fn parse_args() -> (bool, bool, String, String) {
-    let mut args = std::env::args();
+fn parse_args() -> Result<(bool, bool, String, String), String> {
+    let mut args = env::args();
     let mut is_compress = false;
     let mut is_decompress = false;
 
     // Infer operation from command name, maybe
-    match args.next().expect("Must have command").as_str() {
+    match args.next().unwrap().as_str() {
         "huff" => {
             is_compress = true;
         }
@@ -66,7 +69,7 @@ fn parse_args() -> (bool, bool, String, String) {
 
     // Look for verb if operation is not implied by command name
     if !is_compress && !is_decompress {
-        match args.next().expect("Must have verb").as_str() {
+        match args.next().expect("Must have a verb").as_str() {
             "compress" => {
                 is_compress = true;
             }
@@ -74,7 +77,7 @@ fn parse_args() -> (bool, bool, String, String) {
                 is_decompress = true;
             }
             _ => {
-                panic!("Expected 'compress' or 'decompress'")
+                panic!("Expected verb to be 'compress' or 'decompress'")
             }
         }
     }
@@ -90,7 +93,7 @@ fn parse_args() -> (bool, bool, String, String) {
     let in_filename = n;
     if is_decompress && !in_filename.ends_with(".huff") {
        // TODO: Also must check that filename is not empty after stripping extension
-        panic!("Input file must have extension .huff")
+        return Err("Input file must have extension .huff".to_string())
     }
     if !have_out_filename {
         out_filename = String::from(in_filename.as_str());
@@ -101,7 +104,7 @@ fn parse_args() -> (bool, bool, String, String) {
         }
     }
 
-    (is_compress, is_decompress, in_filename, out_filename)
+    Ok((is_compress, is_decompress, in_filename, out_filename))
 }
 
 const META_SIZE: usize =
@@ -110,7 +113,7 @@ const META_SIZE: usize =
     4 /* number of input bytes encoded */ +
     4 /* number of bytes in encoding */;
 
-fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
+fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
     compress_stream(&mut input, &mut output)?;
@@ -118,7 +121,7 @@ fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<(
     Ok(())
 }
 
-fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
+fn compress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
     let mut out_buf = Box::new([0u8; 65536]);
     let mut meta_buf = Box::new([0u8; META_SIZE]);
@@ -187,7 +190,7 @@ fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, 
     (true, outptr)
 }
 
-fn decompress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
+fn decompress_file(in_filename: String, out_filename: String) -> io::Result<()> {
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
     decompress_stream(&mut input, &mut output)?;
@@ -195,7 +198,7 @@ fn decompress_file(in_filename: String, out_filename: String) -> std::io::Result
     Ok(())
 }
 
-fn decompress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
+fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
     let mut out_buf = Box::new([0u8; 65536]);
     let mut meta_buf = Box::new([0u8; META_SIZE]);
@@ -212,7 +215,7 @@ fn decompress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::W
         let metabytes = if freq_len > 0 { 5*freq_len + 8 } else { 4 };
         let got_metadata = read_bytes(input, 2, metabytes, meta_buf.as_mut_slice())?;
         if !got_metadata {
-            panic!("Bad metadata"); // FIXME, return an error
+            return Err(io::Error::new(io::ErrorKind::Other, "Bad metadata"));
         }
         let bytes_encoded;
         let bytes_to_decode;
@@ -237,7 +240,7 @@ fn decompress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::W
         }
         let got_data = read_bytes(input, 0, bytes_encoded as usize, in_buf.as_mut_slice())?;
         if !got_data {
-            panic!("Bad data"); // FIXME
+            return Err(io::Error::new(io::ErrorKind::Other, "Bad data"));
         }
         let to_write;
         if freq_len > 0 {
@@ -282,7 +285,7 @@ fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8],
                 t = if bit == 0 { zero } else { one };
             }
             _ => {
-                panic!("Should not happen")
+                panic!("Bad tree - should not happen")
             }
         }
     }
@@ -292,7 +295,7 @@ fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8],
 // Returns true if we got n bytes, false if we got zero bytes (orderly EOF), otherwise
 // an error.
 
-fn read_bytes(input: &mut dyn std::io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> std::io::Result<bool> {
+fn read_bytes(input: &mut dyn io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> io::Result<bool> {
     let mut bytes_read = 0;
     while bytes_read < nbytes {
         let n = input.read(&mut buf[atloc+bytes_read..atloc+nbytes])?;
@@ -300,7 +303,7 @@ fn read_bytes(input: &mut dyn std::io::Read, atloc: usize, nbytes: usize, buf: &
             if bytes_read == 0 {
                 return Ok(false)
             }
-            panic!("Premature EOF");  // FIXME
+            return Err(io::Error::new(io::ErrorKind::Other, "Premature EOF"));
         }
         bytes_read += n;
     }
@@ -319,8 +322,8 @@ struct DictItem {
 fn populate_dict(width: usize, bits: u64, tree: &Box<HuffTree>, dict: &mut [DictItem]) -> bool {
     match &tree.left {
         Some(_) => {
-            return populate_dict(width+1, bits, &tree.left.as_ref().expect("LEFT"), dict) &&
-                   populate_dict(width+1, (1<<width)|bits, &tree.right.as_ref().expect("RIGHT"), dict)
+            return populate_dict(width+1, bits, &tree.left.as_ref().unwrap(), dict) &&
+                   populate_dict(width+1, (1<<width)|bits, &tree.right.as_ref().unwrap(), dict)
         }
         None => {
             // "56" is an artifact of the implementation of compression, it guarantees that
@@ -365,21 +368,21 @@ fn greater_weight(a: Weight, b: Weight) -> bool {
 }
 
 fn build_huffman_tree(freq: &[FreqEntry]) -> Box<HuffTree> {
-    let mut heap = Heap::<Box<HuffTree>, Weight>::new(greater_weight);
+    let mut priq = heap::Heap::<Box<HuffTree>, Weight>::new(greater_weight);
     let mut next_serial = 0u32;
     for i in freq {
         let t = Box::new(HuffTree { val: i.val, left: None, right: None });
-        heap.insert(Weight{serial: next_serial, weight: i.count}, t);
+        priq.insert(Weight{serial: next_serial, weight: i.count}, t);
         next_serial += 1;
     }
-    while heap.len() > 1 {
-        let (a, wa) = heap.extract_max();
-        let (b, wb) = heap.extract_max();
+    while priq.len() > 1 {
+        let (a, wa) = priq.extract_max();
+        let (b, wb) = priq.extract_max();
         let t = Box::new(HuffTree { val: 0, left: Some(a), right: Some(b)});
-        heap.insert(Weight{serial: next_serial, weight: wa.weight + wb.weight}, t);
+        priq.insert(Weight{serial: next_serial, weight: wa.weight + wb.weight}, t);
         next_serial += 1;
     }
-    heap.extract_max().0
+    priq.extract_max().0
 }
 
 // Byte frequency count.  The returned slice has counts for bytes with non-zero frequencies
@@ -410,11 +413,11 @@ fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a 
     // for equal counts.
     freq.sort_by(|x, y| {
         if x.count > y.count {
-            std::cmp::Ordering::Less
+            cmp::Ordering::Less
         } else if x.count < y.count {
-            std::cmp::Ordering::Greater
+            cmp::Ordering::Greater
         } else {
-            std::cmp::Ordering::Equal
+            cmp::Ordering::Equal
         }
     });
 
