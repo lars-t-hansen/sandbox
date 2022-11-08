@@ -51,7 +51,7 @@ fn main() {
     }
 }
 
-fn parse_args() -> Result<(bool, bool, String, String), String> {
+fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* in_filename */ String, /* out_filename */ String), String> {
     let mut args = env::args();
     let mut is_compress = false;
     let mut is_decompress = false;
@@ -140,7 +140,8 @@ fn compress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io:
     Ok(())
 }
 
-fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut [DictItem], meta_buf: &'a mut [u8], out_buf: &'b mut [u8]) -> (&'a [u8], &'b [u8]) {
+fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut [DictItem], meta_buf: &'a mut [u8], out_buf: &'b mut [u8]) ->
+        (/* meta_data */ &'a [u8], /* out_data */ &'b [u8]) {
     let bytes_read = input.len();
     let freq = compute_byte_frequencies(input, freq_buf);
     let tree = build_huffman_tree(&freq);
@@ -169,7 +170,7 @@ fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut 
     (&meta_buf[0..metaloc], output)
 }
 
-fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, usize) {
+fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (/* success */ bool, /* bytes_encoded */ usize) {
     let mut outptr = 0;
     let limit = output.len();
     let mut window = 0u64;
@@ -251,10 +252,10 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
         if freq_len > 0 {
             let freq = &freq_buf.as_slice()[..freq_len];
             let tree = build_huffman_tree(&freq);
-            let bytes_decoded = decompress_block(&tree, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
-            to_write = &out_buf.as_slice()[..bytes_decoded]
+            decompress_block(&tree, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
+            to_write = &out_buf.as_slice()[..bytes_to_decode]
         } else {
-            to_write = &in_buf.as_slice()[..bytes_encoded]
+            to_write = &in_buf.as_slice()[..bytes_to_decode]
         }
         // TODO: Can we write partial data?
         output.write(to_write)?;
@@ -262,7 +263,7 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
     Ok(())
 }
 
-fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8], out_buf: &mut [u8]) -> usize {
+fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8], out_buf: &mut [u8]) {
     let mut outptr = 0;
     let mut inptr = 0;
     let mut inbyte = 0u8;
@@ -294,7 +295,6 @@ fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8],
             }
         }
     }
-    outptr
 }
 
 // Returns true if we got n bytes, false if we got zero bytes (orderly EOF), otherwise
