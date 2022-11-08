@@ -133,35 +133,40 @@ fn compress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io:
             break
         }
         let input = &in_buf.as_slice()[0..bytes_read];
-        let freq = compute_byte_frequencies(input, freq_buf.as_mut_slice());
-        let tree = build_huffman_tree(&freq);
-        let have_dict = populate_dict(0, 0, &tree, dict.as_mut_slice());
-        let mut did_encode = false;
-        let mut bytes_encoded = 0;
-        if have_dict {
-            (did_encode, bytes_encoded) = compress_block(dict.as_slice(), input, out_buf.as_mut_slice());
-        }
-        let mut metaloc = 0;
-        if did_encode {
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, freq.len() as u64);
-            for item in freq {
-                metaloc = put(meta_buf.as_mut_slice(), metaloc, 1, item.val as u64);
-                metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, item.count as u64);
-            }
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read as u64);
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_encoded as u64);
-        } else {
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, 0u64);
-            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read as u64);
-        }
-        output.write(&meta_buf.as_slice()[0..metaloc])?;
-        if did_encode {
-            output.write(&out_buf.as_mut_slice()[0..bytes_encoded])?;
-        } else {
-            output.write(input)?;
-        }
+        let (meta_data, out_data) = encode_block(input, freq_buf.as_mut_slice(), dict.as_mut_slice(), meta_buf.as_mut_slice(), out_buf.as_mut_slice());
+        output.write(meta_data)?;
+        output.write(out_data)?;
     }
     Ok(())
+}
+
+fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut [DictItem], meta_buf: &'a mut [u8], out_buf: &'b mut [u8]) -> (&'a [u8], &'b [u8]) {
+    let bytes_read = input.len();
+    let freq = compute_byte_frequencies(input, freq_buf);
+    let tree = build_huffman_tree(&freq);
+    let have_dict = populate_dict(0, 0, &tree, dict);
+    let mut did_encode = false;
+    let mut bytes_encoded = 0;
+    if have_dict {
+        (did_encode, bytes_encoded) = compress_block(dict, input, out_buf);
+    }
+    let mut metaloc = 0;
+    let output;
+    if did_encode {
+        metaloc = put(meta_buf, metaloc, 2, freq.len() as u64);
+        for item in freq {
+            metaloc = put(meta_buf, metaloc, 1, item.val as u64);
+            metaloc = put(meta_buf, metaloc, 4, item.count as u64);
+        }
+        metaloc = put(meta_buf, metaloc, 4, bytes_read as u64);
+        metaloc = put(meta_buf, metaloc, 4, bytes_encoded as u64);
+        output = &out_buf[0..bytes_encoded];
+    } else {
+        metaloc = put(meta_buf, metaloc, 2, 0u64);
+        metaloc = put(meta_buf, metaloc, 4, bytes_read as u64);
+        output = input;
+    }
+    (&meta_buf[0..metaloc], output)
 }
 
 fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, usize) {
