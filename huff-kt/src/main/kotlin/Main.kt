@@ -1,7 +1,8 @@
 // Huffman compressor / decompressor
 //
 // (Based on the Go and Rust versions in `sandbox/huff` and `sandbox/huffrs`,
-// except this is still not multi-threaded)
+// except this is still not multi-threaded.  Unlike the other two versions,
+// this one does not reuse input and output buffers.)
 //
 // huffer compress [-o outfile] filename
 //   Creates outfile, or if no -o option, filename.huff
@@ -51,10 +52,9 @@ fun parseCommandLine(args: Array<String>) : Triple<Op, String, String> {
     if (argno >= args.size) {
         throw Exception("Expected verb")
     }
-    var op = Op.Compress
-    when (args[argno++]) {
-        "compress" -> { op = Op.Compress }
-        "decompress" -> { op = Op.Decompress }
+    val op = when (args[argno++]) {
+        "compress" -> Op.Compress
+        "decompress" -> Op.Decompress
         else -> { throw Exception("Expected 'compress' or 'decompress'") }
     }
     var inFilename = ""
