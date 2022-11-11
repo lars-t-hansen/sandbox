@@ -170,10 +170,7 @@ fun compressBlock(input: ByteVector, dict: Vector<DictItem>): ByteVector? {
 
 // Build the encoding dictionary.  The builder returns null if the bit strings would be too wide.
 
-class DictItem {
-    var bits = 0L
-    var width = 0
-}
+data class DictItem(var bits: Long = 0L, var width: Int = 0)
 
 fun buildEncodingDictionary(t: HuffTree) : Vector<DictItem>? {
     val dict = Vector<DictItem>(256) { DictItem() }
@@ -234,16 +231,13 @@ fun buildHuffmanTree(freqItems: Vector<FreqItem>) : HuffTree {
 
 // Compute byte frequencies and produce a sorted array for non-zero byte values.
 
-class FreqItem(b: Byte, c: Int) {
-    var byte = b
-    var count = c
-}
+data class FreqItem(var byte: Byte, var count: Int = 0)
 
 // Kotlin and Java suck (compared to Rust and Go) because there are no slices,
 // hence there's going to be a lot of copying.
 
 fun computeFrequencies(bytes: ByteVector): Vector<FreqItem> {
-    val freqItems = Vector<FreqItem>(256) {FreqItem(it.toByte(), 0)}
+    val freqItems = Vector<FreqItem>(256) {FreqItem(it.toByte())}
     for ( i in 0 until bytes.size) {
         freqItems[bytes[i].toInt()].count++
     }

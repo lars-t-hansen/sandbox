@@ -2,11 +2,7 @@
 // Break equal priorities by always choosing the node first added.
 
 class Heap<T> {
-    private class HeapNode<T>(w: Int, s: Int, t: T) {
-        var weight = w
-        var serial = s
-        var tree = t
-    }
+    private class HeapNode<T>(var weight: Int, var serial: Int, var tree: T)
 
     // Here `size` is the number of active elements, `store` is as least as long as `size`
     // but may be longer, it is grown on demand.  Nodes are not shared outside the Heap and
