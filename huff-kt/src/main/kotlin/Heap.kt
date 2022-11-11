@@ -71,7 +71,7 @@ class Heap<T> {
         store[j] = t
     }
 
-    private fun greater(a: HeapNode<T>, b: HeapNode<T>): Boolean = a.weight > b.weight || a.weight == b.weight && a.serial < b.serial
+    private fun greater(a: HeapNode<T>, b: HeapNode<T>) = a.weight > b.weight || a.weight == b.weight && a.serial < b.serial
 
     private fun parent(loc: Int) = (loc - 1) / 2
     private fun left(loc: Int) = (loc * 2) + 1

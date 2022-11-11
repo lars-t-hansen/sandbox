@@ -23,7 +23,7 @@ class ByteVector() {
         store = ByteArray(sz)
         _size = sz
     }
-    operator fun get(i: Int): Byte = store[i]
+    operator fun get(i: Int) = store[i]
     operator fun set(i: Int, v: Byte) { store[i] = v }
     operator fun iterator(): Iterator<Byte> {
         return object : Iterator<Byte> {

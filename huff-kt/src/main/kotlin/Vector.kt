@@ -16,7 +16,7 @@ class Vector<T>(sz: Int, init: (Int) -> T) {
             store = new
         }
     }
-    operator fun get(i: Int): T = store[i] as T
+    operator fun get(i: Int) = store[i] as T
     operator fun set(i: Int, v: T) { store[i] = v }
     operator fun iterator(): Iterator<T> {
         return object : Iterator<T> {
@@ -33,7 +33,8 @@ class Vector<T>(sz: Int, init: (Int) -> T) {
     fun sortWith(cmp: (T,T) -> Int) {
         // This is nuts but OK for now.  The alternative is that I somehow apply Array::sortWith
         // to a subarray, and wrap cmp in a second closure.
-        // This sort must be stable but is not, stability must be ensured by the predicate
+        // The sort must be stable but this Exchange Sort is not, stability must therefore be
+        // ensured by the predicate.
         for ( i in 0 .. _size-2 ) {
             for ( j in i+1 .. size-1 ) {
                 val res = cmp(store[i] as T, store[j] as T)
