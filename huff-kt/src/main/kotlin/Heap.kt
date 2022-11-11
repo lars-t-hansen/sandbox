@@ -15,9 +15,7 @@ class Heap<T> {
     private var store = Vector<HeapNode<T>>(0) {throw Exception("Bad")}
     private var serial = 0
 
-    data class HeapItem<T>(val t:T, val w: Int)
-
-    fun extractMax(): HeapItem<T> {
+    fun extractMax(): Pair<T, Int> {
         assert(size > 0)
         size--
         swap(0, size)
@@ -25,7 +23,7 @@ class Heap<T> {
         if (size > 1) {
             heapifyAtZero()
         }
-        return HeapItem<T>(max.tree, max.weight)
+        return Pair(max.tree, max.weight)
     }
 
     fun insert(weight: Int, tree: T) {

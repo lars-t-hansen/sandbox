@@ -34,10 +34,62 @@ import java.io.OutputStream
 import java.nio.file.Files
 
 fun main(args: Array<String>) {
-    // TODO: Command line parsing and file name computation
-    // TODO: Decompression
-    compressFile("test.txt", "test.txt.huff")
+    val (op, inFilename, outFilename) = parseCommandLine(args)
+    when (op) {
+        Op.Compress -> compressFile(inFilename, outFilename)
+        Op.Decompress -> decompressFile(inFilename, outFilename)
+    }
 }
+
+enum class Op {
+    Compress,
+    Decompress
+}
+
+fun parseCommandLine(args: Array<String>) : Triple<Op, String, String> {
+    var argno = 0
+    if (argno >= args.size) {
+        throw Exception("Expected verb")
+    }
+    var op = Op.Compress
+    when (args[argno++]) {
+        "compress" -> { op = Op.Compress }
+        "decompress" -> { op = Op.Decompress }
+        else -> { throw Exception("Expected 'compress' or 'decompress'") }
+    }
+    var inFilename = ""
+    var outFilename = ""
+    var haveOutfileName = false
+    if (argno < args.size && args[argno] == "-o") {
+        argno++
+        if (argno >= args.size) {
+            throw Exception("Expected output file name")
+        }
+        outFilename = args[argno++]
+        haveOutfileName = true
+    }
+    if (argno >= args.size) {
+        throw Exception("Expected input file name")
+    }
+    inFilename = args[argno++]
+    if (argno != args.size) {
+        throw Exception("Too many arguments")
+    }
+    if (op == Op.Decompress && !inFilename.endsWith(".huff")) {
+        throw Exception("Will only decompress files with names ending with .huff")
+    }
+    // TODO: For decompress, check that basename minus .huff is not empty
+    if (!haveOutfileName) {
+        if (op == Op.Compress) {
+            outFilename = inFilename + ".huff"
+        } else {
+            outFilename = inFilename.substring(0, inFilename.length-5)
+        }
+    }
+    return Triple(op, inFilename, outFilename)
+}
+
+// Compression
 
 fun compressFile(inFilename: String, outFilename: String) {
     val input = Files.newInputStream(java.nio.file.Paths.get(inFilename))
@@ -55,18 +107,23 @@ fun compressStream(input: InputStream, output: OutputStream) {
             break
         }
         inBuf.shrinkTo(bytesRead)
-        val freq = computeFrequencies(inBuf)
-        val tree = buildHuffmanTree(freq)
-        val dict = buildEncodingDictionary(tree)
-        val outBuf = if (dict != null) {
-            compressBlock(inBuf, dict) ?: inBuf
-        } else {
-            inBuf
-        }
-        val metadata = constructMetadata(dict != null, inBuf, freq, outBuf)
-        output.write(metadata.dataref, 0, metadata.size)
+        val (metaBuf, outBuf) = encodeBlock(inBuf)
+        output.write(metaBuf.dataref, 0, metaBuf.size)
         output.write(outBuf.dataref, 0, outBuf.size)
     }
+}
+
+fun encodeBlock(inBuf: ByteVector) : Pair<ByteVector, ByteVector> {
+    val freq = computeFrequencies(inBuf)
+    val tree = buildHuffmanTree(freq)
+    val dict = buildEncodingDictionary(tree)
+    val outBuf = if (dict != null) {
+        compressBlock(inBuf, dict) ?: inBuf
+    } else {
+        inBuf
+    }
+    val metadata = constructMetadata(dict != null, inBuf, freq, outBuf)
+    return Pair(metadata, outBuf)
 }
 
 fun constructMetadata(wasEncoded: Boolean, inBuf: ByteVector, freq: Vector<FreqItem>, outBuf: ByteVector): ByteVector {
@@ -84,16 +141,6 @@ fun constructMetadata(wasEncoded: Boolean, inBuf: ByteVector, freq: Vector<FreqI
         put(m, inBuf.size.toLong(), 4)
     }
     return m
-}
-
-fun put(out: ByteVector, _v: Long, _nbytes: Int) {
-    var v = _v
-    var nbytes = _nbytes
-    while (nbytes > 0) {
-        out.push(v.toByte())
-        nbytes--
-        v = v ushr 8
-    }
 }
 
 fun compressBlock(input: ByteVector, dict: Vector<DictItem>): ByteVector? {
@@ -149,6 +196,12 @@ fun buildEncodingDictionary(t: HuffTree) : Vector<DictItem>? {
     return dict
 }
 
+// Decompression
+
+fun decompressFile(inFilename: String, outFilename: String) {
+    throw Exception("NYI")
+}
+
 // Build the Huffman tree.  The input array must be sorted by decreasing count, with lower byte values coming before
 // higher byte values.
 
@@ -176,7 +229,7 @@ fun buildHuffmanTree(freqItems: Vector<FreqItem>) : HuffTree {
         val (b, wb) = priq.extractMax()
         priq.insert(wa + wb, HuffTree(a, b))
     }
-    return priq.extractMax().t
+    return priq.extractMax().first
 }
 
 // Compute byte frequencies and produce a sorted array for non-zero byte values.
@@ -204,3 +257,16 @@ fun computeFrequencies(bytes: ByteVector): Vector<FreqItem> {
     freqItems.shrinkTo(numFreqItems)
     return freqItems
 }
+
+// Misc utilities
+
+fun put(out: ByteVector, _v: Long, _nbytes: Int) {
+    var v = _v
+    var nbytes = _nbytes
+    while (nbytes > 0) {
+        out.push(v.toByte())
+        nbytes--
+        v = v ushr 8
+    }
+}
+
