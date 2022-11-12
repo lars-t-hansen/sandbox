@@ -154,17 +154,17 @@ fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut 
     let mut metaloc = 0;
     let output;
     if did_encode {
-        metaloc = put(meta_buf, metaloc, 2, freq.len() as u64);
+        metaloc = put_u16(meta_buf, metaloc, freq.len() as u16);
         for item in freq {
-            metaloc = put(meta_buf, metaloc, 1, item.val as u64);
-            metaloc = put(meta_buf, metaloc, 4, item.count as u64);
+            metaloc = put_u8(meta_buf, metaloc, item.val);
+            metaloc = put_u32(meta_buf, metaloc, item.count);
         }
-        metaloc = put(meta_buf, metaloc, 4, bytes_read as u64);
-        metaloc = put(meta_buf, metaloc, 4, bytes_encoded as u64);
+        metaloc = put_u32(meta_buf, metaloc, bytes_read as u32);
+        metaloc = put_u32(meta_buf, metaloc, bytes_encoded as u32);
         output = &out_buf[0..bytes_encoded];
     } else {
-        metaloc = put(meta_buf, metaloc, 2, 0u64);
-        metaloc = put(meta_buf, metaloc, 4, bytes_read as u64);
+        metaloc = put_u16(meta_buf, metaloc, 0u16);
+        metaloc = put_u32(meta_buf, metaloc, bytes_read as u32);
         output = input;
     }
     (&meta_buf[0..metaloc], output)
@@ -214,7 +214,7 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
         if !got_metadata {
             break
         }
-        let (_, item) = get(meta_buf.as_slice(), 0, 2);
+        let (_, item) = get_u16(meta_buf.as_slice(), 0);
         let freq_len = item as usize;
         let metabytes = if freq_len > 0 { 5*freq_len + 8 } else { 4 };
         let got_metadata = read_bytes(input, 2, metabytes, meta_buf.as_mut_slice())?;
@@ -241,22 +241,20 @@ fn decode_metadata<'a>(metadata: &[u8], freq_len: usize, freq_buf: &'a mut [Freq
     let bytes_to_decode;
     let mut freq = &mut freq_buf[..freq_len];
     let mut metaloc = 0;
-    let mut item : u64;
     if freq_len > 0 {
         let mut i = 0;
         while i < freq_len {
-            (metaloc, item) = get(metadata, metaloc, 1);
-            freq[i].val = item as u8;
-            (metaloc, item) = get(metadata, metaloc, 4);
-            freq[i].count = item as u32;
+            (metaloc, freq[i].val) = get_u8(metadata, metaloc);
+            (metaloc, freq[i].count) = get_u32(metadata, metaloc);
             i += 1;
         }
-        (metaloc, item) = get(metadata, metaloc, 4);
+        let mut item : u32;
+        (metaloc, item) = get_u32(metadata, metaloc);
         bytes_to_decode = item as usize;
-        (_, item) = get(metadata, metaloc, 4);
+        (_, item) = get_u32(metadata, metaloc);
         bytes_encoded = item as usize;
     } else {
-        (_, item) = get(metadata, metaloc, 4);
+        let (_, item) = get_u32(metadata, metaloc);
         bytes_encoded = item as usize;
         bytes_to_decode = bytes_encoded;
     }
@@ -378,6 +376,7 @@ struct Weight {
     weight: u32
 }
 
+// It would be fun to get rid of this by instead implementing PartialOrd and PartialEq on Weight
 fn greater_weight(a: Weight, b: Weight) -> bool {
     a.weight < b.weight || a.weight == b.weight && a.serial < b.serial
 }
@@ -445,30 +444,38 @@ fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a 
 
 // Utilities
 
-// Read n-byte value little-endian from stream at location p, return new location and
+// Read value little-endian from stream at location p, return new location and
 // the value read.
 
-fn get(v: &[u8], mut p: usize, mut n: usize) -> (usize, u64) {
-    let mut val : u64 = 0;
-    let mut k = 0;
-    while n > 0 {
-        val = val | ((v[p] as u64) << k);
-        k += 8;
-        p += 1;
-        n -= 1;
-    }
-    (p, val)
+fn get_u8(v: &[u8], p: usize) -> (usize, u8) {
+    (p+1, v[p])
 }
 
-// Write n-byte value little-endian to stream, return location.
-
-fn put(v: &mut [u8], mut p: usize, mut n: usize, mut val: u64) -> usize {
-    while n > 0 {
-        v[p] = val as u8;
-        val >>= 8;
-        n -= 1;
-        p += 1;
-    }
-    p
+fn get_u16(v: &[u8], p: usize) -> (usize, u16) {
+    (p+2, ((v[p+1] as u16) << 8) | (v[p] as u16))
 }
 
+fn get_u32(v: &[u8], p: usize) -> (usize, u32) {
+    (p+4, ((v[p+3] as u32) << 24) | ((v[p+2] as u32) << 16) | ((v[p+1] as u32) << 8) | (v[p] as u32))
+}
+
+// Write value little-endian to slice at position, return new position.
+
+fn put_u8(v: &mut [u8], p: usize, val: u8) -> usize {
+    v[p] = val;
+    p+1
+}
+
+fn put_u16(v: &mut [u8], p: usize, val: u16) -> usize {
+    v[p] = val as u8;
+    v[p+1] = (val >> 8) as u8;
+    p+2
+}
+
+fn put_u32(v: &mut [u8], p: usize, val: u32) -> usize {
+    v[p] = val as u8;
+    v[p+1] = (val >> 8) as u8;
+    v[p+2] = (val >> 16) as u8;
+    v[p+3] = (val >> 24) as u8;
+    p+4
+}
