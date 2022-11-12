@@ -183,9 +183,8 @@ fun buildEncodingDictionary(t: HuffTree) : Vector<DictItem>? {
         if (width == 56) {
             return false
         }
-        build(t.zero!!, bits, width + 1)
-        build(t.one!!, (1L shl width) or bits, width + 1)
-        return true
+        return build(t.zero!!, bits, width + 1) &&
+               build(t.one!!, (1L shl width) or bits, width + 1)
     }
     if (!build(t, 0, 0)) {
         return null
