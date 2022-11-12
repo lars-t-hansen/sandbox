@@ -1,20 +1,20 @@
 // Priority queue using a heap.
 
+use std::cmp;
+
 struct Node<Val, Weight> {
     weight: Weight,
     val: Val
 }
 
-pub struct Heap<Val, Weight: Copy> {
-    xs: Vec<Node<Val, Weight>>,
-    greater: fn(Weight, Weight) -> bool,
+pub struct Heap<Val, Weight: Copy + cmp::PartialOrd> {
+    xs: Vec<Node<Val, Weight>>
 }
 
-impl<Val, Weight: Copy> Heap<Val, Weight> {
-    pub fn new(greater: fn(Weight, Weight) -> bool) -> Heap<Val, Weight> {
+impl<Val, Weight: Copy + cmp::PartialOrd> Heap<Val, Weight> {
+    pub fn new() -> Heap<Val, Weight> {
         Heap::<Val, Weight> {
-            xs: Vec::<Node<Val, Weight>>::new(),
-            greater: greater
+            xs: Vec::<Node<Val, Weight>>::new()
         }
     }
 
@@ -36,7 +36,7 @@ impl<Val, Weight: Copy> Heap<Val, Weight> {
     pub fn insert(&mut self, weight: Weight, t: Val) {
         self.xs.push(Node{weight:weight, val:t});
         let mut i = self.xs.len() - 1;
-        while i > 0 && (self.greater)(self.xs[i].weight, self.xs[parent(i)].weight) {
+        while i > 0 && self.xs[i].weight > self.xs[parent(i)].weight {
             self.xs.as_mut_slice().swap(i, parent(i));
             i = parent(i);
         }
@@ -46,11 +46,11 @@ impl<Val, Weight: Copy> Heap<Val, Weight> {
         loop {
             let mut greatest = loc;
             let l = left(loc);
-            if l < self.xs.len() && (self.greater)(self.xs[l].weight, self.xs[loc].weight) {
+            if l < self.xs.len() && self.xs[l].weight > self.xs[loc].weight {
                 greatest = l;
             }
             let r = right(loc);
-            if r < self.xs.len() && (self.greater)(self.xs[r].weight, self.xs[greatest].weight) {
+            if r < self.xs.len() && self.xs[r].weight > self.xs[greatest].weight {
                 greatest = r;
             }
             if greatest == loc {

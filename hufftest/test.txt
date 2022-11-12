@@ -33,13 +33,10 @@
 mod heap;
 
 use std::fs::File;
-use std::{cmp,env,io};
+use crate::heap::*;
 
 fn main() {
-    let (is_compress, _, in_filename, out_filename) = match parse_args() {
-        Ok(x) => x,
-        Err(e) => { panic!("{}", e) }
-    };
+    let (is_compress, _, in_filename, out_filename) = parse_args();
     let res = if is_compress {
         compress_file(in_filename, out_filename)
     } else {
@@ -51,13 +48,13 @@ fn main() {
     }
 }
 
-fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* in_filename */ String, /* out_filename */ String), String> {
-    let mut args = env::args();
+fn parse_args() -> (bool, bool, String, String) {
+    let mut args = std::env::args();
     let mut is_compress = false;
     let mut is_decompress = false;
 
     // Infer operation from command name, maybe
-    match args.next().unwrap().as_str() {
+    match args.next().expect("Must have command").as_str() {
         "huff" => {
             is_compress = true;
         }
@@ -69,7 +66,7 @@ fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* 
 
     // Look for verb if operation is not implied by command name
     if !is_compress && !is_decompress {
-        match args.next().expect("Must have a verb").as_str() {
+        match args.next().expect("Must have verb").as_str() {
             "compress" => {
                 is_compress = true;
             }
@@ -77,7 +74,7 @@ fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* 
                 is_decompress = true;
             }
             _ => {
-                panic!("Expected verb to be 'compress' or 'decompress'")
+                panic!("Expected 'compress' or 'decompress'")
             }
         }
     }
@@ -93,7 +90,7 @@ fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* 
     let in_filename = n;
     if is_decompress && !in_filename.ends_with(".huff") {
        // TODO: Also must check that filename is not empty after stripping extension
-        return Err("Input file must have extension .huff".to_string())
+        panic!("Input file must have extension .huff")
     }
     if !have_out_filename {
         out_filename = String::from(in_filename.as_str());
@@ -104,7 +101,7 @@ fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* 
         }
     }
 
-    Ok((is_compress, is_decompress, in_filename, out_filename))
+    (is_compress, is_decompress, in_filename, out_filename)
 }
 
 const META_SIZE: usize =
@@ -113,7 +110,7 @@ const META_SIZE: usize =
     4 /* number of input bytes encoded */ +
     4 /* number of bytes in encoding */;
 
-fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
+fn compress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
     compress_stream(&mut input, &mut output)?;
@@ -121,7 +118,7 @@ fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
     Ok(())
 }
 
-fn compress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
+fn compress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
     let mut out_buf = Box::new([0u8; 65536]);
     let mut meta_buf = Box::new([0u8; META_SIZE]);
@@ -133,44 +130,38 @@ fn compress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io:
             break
         }
         let input = &in_buf.as_slice()[0..bytes_read];
-        let (meta_data, out_data) = encode_block(input, freq_buf.as_mut_slice(), dict.as_mut_slice(), meta_buf.as_mut_slice(), out_buf.as_mut_slice());
-        output.write(meta_data)?;
-        output.write(out_data)?;
+        let freq = compute_byte_frequencies(input, freq_buf.as_mut_slice());
+        let tree = build_huffman_tree(&freq);
+        let have_dict = populate_dict(0, 0, &tree, dict.as_mut_slice());
+        let mut did_encode = false;
+        let mut bytes_encoded = 0;
+        if have_dict {
+            (did_encode, bytes_encoded) = compress_block(dict.as_slice(), input, out_buf.as_mut_slice());
+        }
+        let mut metaloc = 0;
+        if did_encode {
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, freq.len() as u64);
+            for item in freq {
+                metaloc = put(meta_buf.as_mut_slice(), metaloc, 1, item.val as u64);
+                metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, item.count as u64);
+            }
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read as u64);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_encoded as u64);
+        } else {
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 2, 0u64);
+            metaloc = put(meta_buf.as_mut_slice(), metaloc, 4, bytes_read as u64);
+        }
+        output.write(&meta_buf.as_slice()[0..metaloc])?;
+        if did_encode {
+            output.write(&out_buf.as_mut_slice()[0..bytes_encoded])?;
+        } else {
+            output.write(input)?;
+        }
     }
     Ok(())
 }
 
-fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut [DictItem], meta_buf: &'a mut [u8], out_buf: &'b mut [u8]) ->
-        (/* meta_data */ &'a [u8], /* out_data */ &'b [u8]) {
-    let bytes_read = input.len();
-    let freq = compute_byte_frequencies(input, freq_buf);
-    let tree = build_huffman_tree(&freq);
-    let have_dict = populate_dict(0, 0, &tree, dict);
-    let mut did_encode = false;
-    let mut bytes_encoded = 0;
-    if have_dict {
-        (did_encode, bytes_encoded) = compress_block(dict, input, out_buf);
-    }
-    let mut metaloc = 0;
-    let output;
-    if did_encode {
-        metaloc = put_u16(meta_buf, metaloc, freq.len() as u16);
-        for item in freq {
-            metaloc = put_u8(meta_buf, metaloc, item.val);
-            metaloc = put_u32(meta_buf, metaloc, item.count);
-        }
-        metaloc = put_u32(meta_buf, metaloc, bytes_read as u32);
-        metaloc = put_u32(meta_buf, metaloc, bytes_encoded as u32);
-        output = &out_buf[0..bytes_encoded];
-    } else {
-        metaloc = put_u16(meta_buf, metaloc, 0u16);
-        metaloc = put_u32(meta_buf, metaloc, bytes_read as u32);
-        output = input;
-    }
-    (&meta_buf[0..metaloc], output)
-}
-
-fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (/* success */ bool, /* bytes_encoded */ usize) {
+fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (bool, usize) {
     let mut outptr = 0;
     let limit = output.len();
     let mut window = 0u64;
@@ -196,7 +187,7 @@ fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (/* suc
     (true, outptr)
 }
 
-fn decompress_file(in_filename: String, out_filename: String) -> io::Result<()> {
+fn decompress_file(in_filename: String, out_filename: String) -> std::io::Result<()> {
     let mut input = File::open(in_filename)?;
     let mut output = File::create(out_filename)?;
     decompress_stream(&mut input, &mut output)?;
@@ -204,7 +195,7 @@ fn decompress_file(in_filename: String, out_filename: String) -> io::Result<()> 
     Ok(())
 }
 
-fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
+fn decompress_stream(input: &mut dyn std::io::Read,  output: &mut dyn std::io::Write) -> std::io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
     let mut out_buf = Box::new([0u8; 65536]);
     let mut meta_buf = Box::new([0u8; META_SIZE]);
@@ -214,64 +205,54 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
         if !got_metadata {
             break
         }
-        let (_, item) = get_u16(meta_buf.as_slice(), 0);
+        let mut metaloc = 0;
+        let mut item;
+        (metaloc, item) = get(meta_buf.as_slice(), metaloc, 2);
         let freq_len = item as usize;
         let metabytes = if freq_len > 0 { 5*freq_len + 8 } else { 4 };
         let got_metadata = read_bytes(input, 2, metabytes, meta_buf.as_mut_slice())?;
         if !got_metadata {
-            return Err(io::Error::new(io::ErrorKind::Other, "Bad metadata"));
+            panic!("Bad metadata"); // FIXME, return an error
         }
-        let (freq, bytes_encoded, bytes_to_decode) = decode_metadata(&meta_buf.as_slice()[2..], freq_len, freq_buf.as_mut_slice());
+        let bytes_encoded;
+        if freq_len > 0 {
+            let mut freq = &mut freq_buf.as_mut_slice()[..freq_len];
+            let mut i = 0;
+            while i < freq_len {
+                (metaloc, item) = get(meta_buf.as_slice(), metaloc, 1);
+                freq[i].val = item as u8;
+                (metaloc, item) = get(meta_buf.as_slice(), metaloc, 4);
+                freq[i].count = item as u32;
+                i += 1;
+            }
+            (metaloc, _) = get(meta_buf.as_slice(), metaloc, 4);
+            // We don't use the bytes_read value
+            (_, item) = get(meta_buf.as_slice(), metaloc, 4);
+            bytes_encoded = item as usize;
+        } else {
+            (_, item) = get(meta_buf.as_slice(), metaloc, 4);
+            bytes_encoded = item as usize;
+        }
         let got_data = read_bytes(input, 0, bytes_encoded as usize, in_buf.as_mut_slice())?;
         if !got_data {
-            return Err(io::Error::new(io::ErrorKind::Other, "Bad data"));
+            panic!("Bad data"); // FIXME
         }
-        let out_data = decode_block(freq, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
+        let to_write;
+        if freq_len > 0 {
+            let freq = &freq_buf.as_slice()[..freq_len];
+            let tree = build_huffman_tree(&freq);
+            let bytes_decoded = decompress_block(&tree, bytes_encoded, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
+            to_write = &out_buf.as_slice()[..bytes_decoded]
+        } else {
+            to_write = &in_buf.as_slice()[..bytes_encoded]
+        }
         // TODO: Can we write partial data?
-        output.write(out_data)?;
+        output.write(to_write)?;
     }
     Ok(())
 }
 
-// This will return a freq of length zero if there is no decoding to be done.
-
-fn decode_metadata<'a>(metadata: &[u8], freq_len: usize, freq_buf: &'a mut [FreqEntry]) -> 
-        (/* freq */ &'a [FreqEntry], /* bytes_encoded */ usize, /* bytes_to_decode */ usize) {
-    let bytes_encoded;
-    let bytes_to_decode;
-    let mut freq = &mut freq_buf[..freq_len];
-    let mut metaloc = 0;
-    if freq_len > 0 {
-        let mut i = 0;
-        while i < freq_len {
-            (metaloc, freq[i].val) = get_u8(metadata, metaloc);
-            (metaloc, freq[i].count) = get_u32(metadata, metaloc);
-            i += 1;
-        }
-        let mut item : u32;
-        (metaloc, item) = get_u32(metadata, metaloc);
-        bytes_to_decode = item as usize;
-        (_, item) = get_u32(metadata, metaloc);
-        bytes_encoded = item as usize;
-    } else {
-        let (_, item) = get_u32(metadata, metaloc);
-        bytes_encoded = item as usize;
-        bytes_to_decode = bytes_encoded;
-    }
-    (freq, bytes_encoded, bytes_to_decode)
-}
-
-fn decode_block<'a>(freq: &[FreqEntry], bytes_to_decode: usize, in_buf: &'a [u8], out_buf: &'a mut [u8]) -> &'a [u8] {
-    if freq.len() > 0 {
-        let tree = build_huffman_tree(&freq);
-        decompress_block(&tree, bytes_to_decode, in_buf, out_buf);
-        return &out_buf[..bytes_to_decode]
-    }
-    assert!(bytes_to_decode == in_buf.len());
-    in_buf
-}
-
-fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8], out_buf: &mut [u8]) {
+fn decompress_block(tree: &Box<HuffTree>, bytes_encoded: usize, in_buf: &[u8], out_buf: &mut [u8]) -> usize {
     let mut outptr = 0;
     let mut inptr = 0;
     let mut inbyte = 0u8;
@@ -282,7 +263,7 @@ fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8],
             (None, None) => {
                 out_buf[outptr] = t.val;
                 outptr += 1;
-                if outptr == bytes_to_decode {
+                if outptr == bytes_encoded {
                     break
                 }
                 t = tree;
@@ -299,16 +280,17 @@ fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8],
                 t = if bit == 0 { zero } else { one };
             }
             _ => {
-                panic!("Bad tree - should not happen")
+                panic!("Should not happen")
             }
         }
     }
+    outptr
 }
 
 // Returns true if we got n bytes, false if we got zero bytes (orderly EOF), otherwise
 // an error.
 
-fn read_bytes(input: &mut dyn io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> io::Result<bool> {
+fn read_bytes(input: &mut dyn std::io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> std::io::Result<bool> {
     let mut bytes_read = 0;
     while bytes_read < nbytes {
         let n = input.read(&mut buf[atloc+bytes_read..atloc+nbytes])?;
@@ -316,7 +298,7 @@ fn read_bytes(input: &mut dyn io::Read, atloc: usize, nbytes: usize, buf: &mut [
             if bytes_read == 0 {
                 return Ok(false)
             }
-            return Err(io::Error::new(io::ErrorKind::Other, "Premature EOF"));
+            panic!("Premature EOF");  // FIXME
         }
         bytes_read += n;
     }
@@ -335,8 +317,8 @@ struct DictItem {
 fn populate_dict(width: usize, bits: u64, tree: &Box<HuffTree>, dict: &mut [DictItem]) -> bool {
     match &tree.left {
         Some(_) => {
-            return populate_dict(width+1, bits, &tree.left.as_ref().unwrap(), dict) &&
-                   populate_dict(width+1, (1<<width)|bits, &tree.right.as_ref().unwrap(), dict)
+            return populate_dict(width+1, bits, &tree.left.as_ref().expect("LEFT"), dict) &&
+                   populate_dict(width+1, (1<<width)|bits, &tree.right.as_ref().expect("RIGHT"), dict)
         }
         None => {
             // "56" is an artifact of the implementation of compression, it guarantees that
@@ -370,44 +352,32 @@ struct HuffTree {
     val: u8
 }
 
-#[derive(Clone,Copy,PartialEq)]
+#[derive(Clone,Copy)]
 struct Weight {
     serial: u32,
     weight: u32
 }
 
-impl PartialOrd for Weight  {
-    fn partial_cmp(&self, other: &Self) ->  Option<cmp::Ordering> {
-        Some(if self.weight < other.weight {
-            cmp::Ordering::Greater  // smaller values have higher priorities
-        } else if self.weight > other.weight {
-            cmp::Ordering::Less     // and vice versa
-        } else if self.serial < other.serial {
-            cmp::Ordering::Greater  // smaller serial numbers have higher priorities
-        } else if self.serial > other.serial {
-            cmp::Ordering::Less     // and vice versa
-        } else {
-            cmp::Ordering::Equal
-        })
-    }
+fn greater_weight(a: Weight, b: Weight) -> bool {
+    a.weight < b.weight || a.weight == b.weight && a.serial < b.serial
 }
 
 fn build_huffman_tree(freq: &[FreqEntry]) -> Box<HuffTree> {
-    let mut priq = heap::Heap::<Box<HuffTree>, Weight>::new();
+    let mut heap = Heap::<Box<HuffTree>, Weight>::new(greater_weight);
     let mut next_serial = 0u32;
     for i in freq {
         let t = Box::new(HuffTree { val: i.val, left: None, right: None });
-        priq.insert(Weight{serial: next_serial, weight: i.count}, t);
+        heap.insert(Weight{serial: next_serial, weight: i.count}, t);
         next_serial += 1;
     }
-    while priq.len() > 1 {
-        let (a, wa) = priq.extract_max();
-        let (b, wb) = priq.extract_max();
+    while heap.len() > 1 {
+        let (a, wa) = heap.extract_max();
+        let (b, wb) = heap.extract_max();
         let t = Box::new(HuffTree { val: 0, left: Some(a), right: Some(b)});
-        priq.insert(Weight{serial: next_serial, weight: wa.weight + wb.weight}, t);
+        heap.insert(Weight{serial: next_serial, weight: wa.weight + wb.weight}, t);
         next_serial += 1;
     }
-    priq.extract_max().0
+    heap.extract_max().0
 }
 
 // Byte frequency count.  The returned slice has counts for bytes with non-zero frequencies
@@ -438,11 +408,11 @@ fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a 
     // for equal counts.
     freq.sort_by(|x, y| {
         if x.count > y.count {
-            cmp::Ordering::Less
+            std::cmp::Ordering::Less
         } else if x.count < y.count {
-            cmp::Ordering::Greater
+            std::cmp::Ordering::Greater
         } else {
-            cmp::Ordering::Equal
+            std::cmp::Ordering::Equal
         }
     });
 
@@ -455,38 +425,30 @@ fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a 
 
 // Utilities
 
-// Read value little-endian from stream at location p, return new location and
+// Read n-byte value little-endian from stream at location p, return new location and
 // the value read.
 
-fn get_u8(v: &[u8], p: usize) -> (usize, u8) {
-    (p+1, v[p])
+fn get(v: &[u8], mut p: usize, mut n: usize) -> (usize, u64) {
+    let mut val : u64 = 0;
+    let mut k = 0;
+    while n > 0 {
+        val = val | ((v[p] as u64) << k);
+        k += 8;
+        p += 1;
+        n -= 1;
+    }
+    (p, val)
 }
 
-fn get_u16(v: &[u8], p: usize) -> (usize, u16) {
-    (p+2, ((v[p+1] as u16) << 8) | (v[p] as u16))
+// Write n-byte value little-endian to stream, return location.
+
+fn put(v: &mut [u8], mut p: usize, mut n: usize, mut val: u64) -> usize {
+    while n > 0 {
+        v[p] = val as u8;
+        val >>= 8;
+        n -= 1;
+        p += 1;
+    }
+    p
 }
 
-fn get_u32(v: &[u8], p: usize) -> (usize, u32) {
-    (p+4, ((v[p+3] as u32) << 24) | ((v[p+2] as u32) << 16) | ((v[p+1] as u32) << 8) | (v[p] as u32))
-}
-
-// Write value little-endian to slice at position, return new position.
-
-fn put_u8(v: &mut [u8], p: usize, val: u8) -> usize {
-    v[p] = val;
-    p+1
-}
-
-fn put_u16(v: &mut [u8], p: usize, val: u16) -> usize {
-    v[p] = val as u8;
-    v[p+1] = (val >> 8) as u8;
-    p+2
-}
-
-fn put_u32(v: &mut [u8], p: usize, val: u32) -> usize {
-    v[p] = val as u8;
-    v[p+1] = (val >> 8) as u8;
-    v[p+2] = (val >> 16) as u8;
-    v[p+3] = (val >> 24) as u8;
-    p+4
-}
