@@ -35,12 +35,18 @@ mod heap;
 use std::fs::File;
 use std::{cmp,env,io};
 
+#[derive(PartialEq)]
+enum Op {
+    Compress,
+    Decompress
+}
+
 fn main() {
-    let (is_compress, _, in_filename, out_filename) = match parse_args() {
+    let (op, in_filename, out_filename) = match parse_args() {
         Ok(x) => x,
         Err(e) => { panic!("{}", e) }
     };
-    let res = if is_compress {
+    let res = if op == Op::Compress {
         compress_file(in_filename, out_filename)
     } else {
         decompress_file(in_filename, out_filename)
@@ -51,36 +57,22 @@ fn main() {
     }
 }
 
-fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* in_filename */ String, /* out_filename */ String), String> {
+fn parse_args() -> Result<(Op, /* in_filename */ String, /* out_filename */ String), String> {
     let mut args = env::args();
-    let mut is_compress = false;
-    let mut is_decompress = false;
 
-    // Infer operation from command name, maybe
-    match args.next().unwrap().as_str() {
-        "huff" => {
-            is_compress = true;
-        }
-        "puff" => {
-            is_decompress = true;
-        }
-        _ => {}
-    }
+    // Infer operation from command name, maybe, otherwise look for verb
+    let op = match args.next().unwrap().as_str() {
+        "huff" => Op::Compress,
+        "puff" => Op::Decompress,
+        _ => match args.next().expect("Must have a verb").as_str() {
+                "compress" => Op::Compress,
+                "decompress" => Op::Decompress,
+                _ => {
+                    panic!("Expected verb to be 'compress' or 'decompress'")
+                }
+            }
+    };
 
-    // Look for verb if operation is not implied by command name
-    if !is_compress && !is_decompress {
-        match args.next().expect("Must have a verb").as_str() {
-            "compress" => {
-                is_compress = true;
-            }
-            "decompress" => {
-                is_decompress = true;
-            }
-            _ => {
-                panic!("Expected verb to be 'compress' or 'decompress'")
-            }
-        }
-    }
     // Parse remaining arguments
     let mut out_filename = String::from("");
     let mut n = args.next().expect("Must have input file");
@@ -91,20 +83,20 @@ fn parse_args() -> Result<(/* is_compress */ bool, /* is_decompress */ bool, /* 
         have_out_filename = true;
     }
     let in_filename = n;
-    if is_decompress && !in_filename.ends_with(".huff") {
+    if op == Op::Decompress && !in_filename.ends_with(".huff") {
        // TODO: Also must check that filename is not empty after stripping extension
         return Err("Input file must have extension .huff".to_string())
     }
     if !have_out_filename {
         out_filename = String::from(in_filename.as_str());
-        if is_compress {
+        if op == Op::Compress {
             out_filename.push_str(".huff")
         } else {
             _ = out_filename.split_off(out_filename.len() - 5);
         }
     }
 
-    Ok((is_compress, is_decompress, in_filename, out_filename))
+    Ok((op, in_filename, out_filename))
 }
 
 const META_SIZE: usize =
