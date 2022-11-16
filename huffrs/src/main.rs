@@ -235,8 +235,7 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
             return Err(io::Error::new(io::ErrorKind::Other, "Bad data"));
         }
         let out_data = decode_block(freq, bytes_to_decode, &in_buf.as_slice()[..bytes_encoded], out_buf.as_mut_slice());
-        // TODO: Can we write partial data?
-        output.write(out_data)?;
+        write_bytes(output, out_data)?;
     }
     Ok(())
 }
@@ -311,24 +310,6 @@ fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8],
             }
         }
     }
-}
-
-// Returns true if we got n bytes, false if we got zero bytes (orderly EOF), otherwise
-// an error.
-
-fn read_bytes(input: &mut dyn io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> io::Result<bool> {
-    let mut bytes_read = 0;
-    while bytes_read < nbytes {
-        let n = input.read(&mut buf[atloc+bytes_read..atloc+nbytes])?;
-        if n == 0 {
-            if bytes_read == 0 {
-                return Ok(false)
-            }
-            return Err(io::Error::new(io::ErrorKind::Other, "Premature EOF"));
-        }
-        bytes_read += n;
-    }
-    Ok(true)
 }
 
 // Encoding dictionary, mapping byte values to bit strings.  Only the byte values present in
@@ -497,4 +478,44 @@ fn put_u32(v: &mut [u8], p: usize, val: u32) -> usize {
     v[p+2] = (val >> 16) as u8;
     v[p+3] = (val >> 24) as u8;
     p+4
+}
+
+// Returns true if we got n bytes, false if we got zero bytes (orderly EOF), otherwise
+// an error.
+
+fn read_bytes(input: &mut dyn io::Read, atloc: usize, nbytes: usize, buf: &mut [u8]) -> io::Result<bool> {
+    let mut bytes_read = 0;
+    while bytes_read < nbytes {
+        let n = input.read(&mut buf[atloc+bytes_read..atloc+nbytes])?;
+        if n == 0 {
+            if bytes_read == 0 {
+                return Ok(false)
+            }
+            return Err(io::Error::new(io::ErrorKind::Other, "Premature EOF"));
+        }
+        bytes_read += n;
+    }
+    Ok(true)
+}
+
+// Try hard to write the entire slice to the output, signal error if we can't do it.
+
+const MAX_RETRIES : usize = 1;
+
+fn write_bytes(output: &mut dyn io::Write, out_data: &[u8]) -> io::Result<()> {
+    let mut written = 0;
+    let mut no_progress = 0;
+    while written < out_data.len() {
+        let n = output.write(&out_data[written..])?;
+        if n == 0 {
+            if no_progress > MAX_RETRIES {
+                return Err(io::Error::new(io::ErrorKind::Other, "Could not write"));
+            }
+            no_progress += 1;
+            continue;
+        }
+        written += n;
+        no_progress = 0;
+    }
+    Ok(())
 }
