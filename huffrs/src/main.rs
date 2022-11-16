@@ -33,7 +33,7 @@
 mod heap;
 
 use std::fs::File;
-use std::{cmp,env,io};
+use std::{cmp,env,io,process};
 
 #[derive(PartialEq)]
 enum Op {
@@ -44,45 +44,61 @@ enum Op {
 fn main() {
     let (op, in_filename, out_filename) = match parse_args() {
         Ok(x) => x,
-        Err(e) => { panic!("{}", e) }
+        Err(e) => { 
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
     };
     let res = if op == Op::Compress {
         compress_file(in_filename, out_filename)
     } else {
         decompress_file(in_filename, out_filename)
     };
-    match res {
-        Ok(()) => {}
-        _ => { panic!("{:?}", res) }
+    if res.is_err() {
+        eprintln!("Error: {}", res.err().unwrap());
+        process::exit(1);
     }
 }
 
 fn parse_args() -> Result<(Op, /* in_filename */ String, /* out_filename */ String), String> {
+    let usage = "Usage: huffrs (compress|decompress) [-o outfile] infile".to_string();
     let mut args = env::args();
 
     // Infer operation from command name, maybe, otherwise look for verb
-    let op = match args.next().unwrap().as_str() {
+    let op = match args.next().unwrap_or("".to_string()).as_str() {
         "huff" => Op::Compress,
         "puff" => Op::Decompress,
-        _ => match args.next().expect("Must have a verb").as_str() {
+        _ => match args.next().unwrap_or("".to_string()).as_str() {
                 "compress" => Op::Compress,
                 "decompress" => Op::Decompress,
                 _ => {
-                    panic!("Expected verb to be 'compress' or 'decompress'")
+                    return Err(usage);
                 }
             }
     };
 
     // Parse remaining arguments
     let mut out_filename = String::from("");
-    let mut n = args.next().expect("Must have input file");
     let mut have_out_filename = false;
-    if n == "-o" {
-        out_filename = args.next().expect("Must have output file after -o");
-        n = args.next().expect("Must have input file");
+    let mut n = args.next();
+    if !n.is_some() {
+        return Err(usage);
+    }
+    if n.as_ref().unwrap() == "-o" {
+        n = args.next();
+        if !n.is_some() {
+            return Err(usage);
+        }
+        out_filename = n.unwrap();
+        n = args.next();
         have_out_filename = true;
     }
-    let in_filename = n;
+    let in_filename = n.unwrap();
+    n = args.next();
+    if !n.is_none() {
+        return Err(usage);
+    }
+
     if op == Op::Decompress && !in_filename.ends_with(".huff") {
        // TODO: Also must check that filename is not empty after stripping extension
         return Err("Input file must have extension .huff".to_string())
