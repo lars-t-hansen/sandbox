@@ -29,6 +29,16 @@
 //   0: u16
 //   number of bytes: u32 (really max 65536)
 //   bytes, the number of which is encoded by previous field
+//
+// This format has a couple of bugs:
+//
+// - since there will be no dictionary entries whose frequency is zero, the frequency
+//   value can be encoded as f-1, so that a 16-bit field is sufficient.
+// - we have to perform three read operations to read a compressed block: first two
+//   bytes to get the metadata length (the dictionary size), then the metadata to
+//   get the size of the encoded block, then the encoded block.  This would more
+//   sensibly be encoded as length-of-metadata-and-data (4 bytes) followed by data,
+//   and a single read operation would get both metadata and data.
 
 mod heap;
 
