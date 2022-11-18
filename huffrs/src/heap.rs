@@ -1,4 +1,4 @@
-// Priority queue using a heap.
+// A heap data structure, and utilities for using it as a priority queue.
 
 use std::cmp;
 
@@ -20,6 +20,11 @@ impl<Val, Weight: Copy + cmp::PartialOrd> Heap<Val, Weight> {
 
     pub fn len(&self) -> usize {
         self.xs.len()
+    }
+
+    pub fn max_weight(&self) -> Weight {
+        assert!(self.len() > 0);
+        self.xs[0].weight   
     }
 
     pub fn extract_max(&mut self) -> (Val, Weight) {

@@ -1,6 +1,6 @@
 // Huffman compressor / decompressor
 //
-// (Based on the Go version in `sandbox/huff`, except this is still not multi-threaded)
+// (Based on the Go version in `sandbox/huff`, the compressed output is compatible)
 //
 // huffer compress [-o outfile] filename
 // huff [-o outfile] filename
@@ -38,12 +38,14 @@
 //   bytes to get the metadata length (the dictionary size), then the metadata to
 //   get the size of the encoded block, then the encoded block.  This would more
 //   sensibly be encoded as length-of-metadata-and-data (4 bytes) followed by data,
-//   and a single read operation would get both metadata and data.
+//   and a single read operation would get both metadata and encoded data.
 
 mod heap;
 
+use std::{cmp,env,fs,io,process,thread,time};
 use std::fs::File;
-use std::{cmp,env,io,process};
+use std::io::{Read,Write};
+use crossbeam_channel::{unbounded, Sender, Receiver};
 
 #[derive(PartialEq)]
 enum Op {
@@ -131,35 +133,159 @@ const META_SIZE: usize =
     4 /* number of input bytes encoded */ +
     4 /* number of bytes in encoding */;
 
+const NUM_WORKERS: usize = 4;
+
 fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
-    let mut input = File::open(in_filename)?;
-    let mut output = File::create(out_filename)?;
-    compress_stream(&mut input, &mut output)?;
+    let input = File::open(in_filename)?;
+    let output = File::create(out_filename)?;
+    compress_stream(NUM_WORKERS, input, output)?;
+    Ok(())
+}
+
+// This is used to communicate data among threads and also avoids massive heap allocation - we reuse the data.
+struct CompressState {
+    id: usize,                      // reader sets this, and writer clears it
+    in_buf_size: usize,             // reader sets this
+    out_buf_size: usize,            // encoder sets this, zero if no encoded data (copy input)
+    meta_buf_size: usize,           // encoder sets this
+    in_buf: Box<[u8; 65536]>,       // reader updates this
+    out_buf: Box<[u8; 65536]>,      // encoder updates this
+    meta_buf: Box<[u8; META_SIZE]>, // encoder updates this
+}
+
+type Item = Box<CompressState>;
+
+// Logic here
+// - create num_workers*2 work items
+// - create one single-producer multi-consumer queue 'available' that the reader will use to communicate with workers
+// - create one multi-producer single-consumer queue 'ready' that the workers will use to communicate with writers
+// - create one single-producer single-consumer queue 'done' that the writer will use to communicate with the reader
+// - the reader will read blocks in order and assign them consequtive IDs and will place them in 'available'.
+//   if it runs out of work items or input it will block on data from 'done', which then goes into the set of work items.
+//   once an item comes back in 'done' that has the id equal to the last id that was submitted after eof we're finished
+// - the worker blocks on 'available', grabs an item, processes it, and places it in 'ready'
+// - the writer grabs items from 'ready' and places them in order, and then writes them in the correct order as soon
+//   as it can, and then sends the spent item on 'done'.
+//
+// The logic for shutdown in the face of read and write errors is missing.
+
+fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> io::Result<()> {
+    let mut items = Vec::<Item>::with_capacity(2*num_workers);
+    for _ in 0..items.capacity() {
+        let in_buf = Box::new([0u8; 65536]);
+        let out_buf = Box::new([0u8; 65536]);
+        let meta_buf = Box::new([0u8; META_SIZE]);
+        let b = Box::new(CompressState { id: 0, in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf });
+        items.push(b);
+    }
+    // Various logic depends on this equality:
+    assert!(items.len() == items.capacity());
+
+    let (available_s, available_r) = unbounded();
+    let (ready_s, ready_r) = unbounded();
+    let (done_s, done_r) = unbounded();
+    let writer_thread = thread::spawn(|| writer_loop(ready_r, done_s, output) );
+    let mut worker_threads = Vec::with_capacity(num_workers);
+    for _ in 0..worker_threads.capacity() {
+        let available_r = available_r.clone();
+        let ready_s = ready_s.clone();
+        worker_threads.push(thread::spawn(|| encoder_loop(available_r, ready_s)))
+    }
+    drop(available_r);
+    drop(ready_s);
+    let res = reader_loop(items, done_r, available_s, input);
+    for w in worker_threads {
+        w.join();
+    }
+    writer_thread.join();
+    res
+}
+
+fn reader_loop(mut items:Vec<Item>, done: Receiver<Item>, available: Sender<Item>, mut input: fs::File) -> io::Result<()> {
+    let mut next_read_id = 0;
+    loop {
+        if items.len() == 0 {
+            items.push(done.recv().unwrap())
+        }
+        let mut item = items.pop().unwrap();
+        // FIXME: Returning along the error path here will leave item dangling, which will
+        // prevent orderly shutdown in the caller, so the caller must handle the error return
+        // explicitly.  However, the encoders and writer will exit properly and any join
+        // logic in our caller should work.
+        let bytes_read = input.read(item.in_buf.as_mut_slice())?;
+        if bytes_read == 0 {
+            items.push(item);
+            break
+        }
+        item.in_buf_size = bytes_read;
+        item.id = next_read_id;
+        next_read_id += 1;
+        available.send(item).unwrap();
+    }
+    while items.len() < items.capacity() {
+        items.push(done.recv().unwrap())
+    }
+    Ok(())
+    // Closing `available_s` will make the encoders exit their encoding loops
+}
+
+fn encoder_loop(available: Receiver<Item>, ready: Sender<Item>) {
+    let mut freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
+    let mut dict = Box::new([DictItem {width: 0, bits: 0}; 256]);
+    loop {
+        match available.recv() {
+            Ok(mut b) => {
+                let input = &b.in_buf.as_slice()[0..b.in_buf_size];
+                (b.meta_buf_size, b.out_buf_size) =
+                    encode_block(input, freq_buf.as_mut_slice(), dict.as_mut_slice(), b.meta_buf.as_mut_slice(), b.out_buf.as_mut_slice());
+                ready.send(b).unwrap();
+            }
+            Err(_) => { break }
+        }
+    }
+    // Closing all of the `ready_s` will make the writer exit its write loop and flush the file
+}
+
+fn writer_loop(ready: Receiver<Item>, done: Sender<Item>, mut output: fs::File) -> io::Result<()> {
+    let mut next_write_id = 0;
+    let mut queue = heap::Heap::<Item, isize>::new();
+    loop {
+        match ready.recv() {
+            Ok(item) => {
+                queue.insert(-(item.id as isize), item);
+                while queue.len() > 0 && queue.max_weight() == next_write_id {
+                    let (mut item, _) = queue.extract_max();
+        
+                    let meta_data = &item.meta_buf[..item.meta_buf_size];
+                    // FIXME: Shutdown logic in the face of write error
+                    output.write(meta_data)?;
+
+                    let out_data = if item.out_buf_size == 0 { 
+                        &item.in_buf[..item.in_buf_size]
+                    } else {
+                        &item.out_buf[..item.out_buf_size]
+                    };
+                    // FIXME: Shutdown logic in the face of write error
+                    output.write(out_data)?;
+
+                    item.id = 0;
+                    next_write_id += 1;
+                    done.send(item).unwrap();
+                }
+            }
+            Err(_) => {
+                assert!(queue.len() == 0);
+                break
+            }
+        }
+    }
+    // FIXME: Shutdown logic in the face of write error
     output.sync_all()?;
     Ok(())
 }
 
-fn compress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
-    let mut in_buf = Box::new([0u8; 65536]);
-    let mut out_buf = Box::new([0u8; 65536]);
-    let mut meta_buf = Box::new([0u8; META_SIZE]);
-    let mut freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
-    let mut dict = Box::new([DictItem {width: 0, bits: 0}; 256]);
-    loop {
-        let bytes_read = input.read(in_buf.as_mut_slice())?;
-        if bytes_read == 0 {
-            break
-        }
-        let input = &in_buf.as_slice()[0..bytes_read];
-        let (meta_data, out_data) = encode_block(input, freq_buf.as_mut_slice(), dict.as_mut_slice(), meta_buf.as_mut_slice(), out_buf.as_mut_slice());
-        output.write(meta_data)?;
-        output.write(out_data)?;
-    }
-    Ok(())
-}
-
 fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut [DictItem], meta_buf: &'a mut [u8], out_buf: &'b mut [u8]) ->
-        (/* meta_data */ &'a [u8], /* out_data */ &'b [u8]) {
+        (/* meta_size */ usize, /* out_size */ usize) {
     let bytes_read = input.len();
     let freq = compute_byte_frequencies(input, freq_buf);
     let tree = build_huffman_tree(&freq);
@@ -170,7 +296,7 @@ fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut 
         (did_encode, bytes_encoded) = compress_block(dict, input, out_buf);
     }
     let mut metaloc = 0;
-    let output;
+    let output_size;
     if did_encode {
         metaloc = put_u16(meta_buf, metaloc, freq.len() as u16);
         for item in freq {
@@ -179,13 +305,13 @@ fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut 
         }
         metaloc = put_u32(meta_buf, metaloc, bytes_read as u32);
         metaloc = put_u32(meta_buf, metaloc, bytes_encoded as u32);
-        output = &out_buf[0..bytes_encoded];
+        output_size = bytes_encoded;
     } else {
         metaloc = put_u16(meta_buf, metaloc, 0u16);
         metaloc = put_u32(meta_buf, metaloc, bytes_read as u32);
-        output = input;
+        output_size = 0;
     }
-    (&meta_buf[0..metaloc], output)
+    (metaloc, output_size)
 }
 
 fn compress_block(dict: &[DictItem], input: &[u8], output: &mut [u8]) -> (/* success */ bool, /* bytes_encoded */ usize) {
