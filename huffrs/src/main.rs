@@ -40,12 +40,11 @@
 //   sensibly be encoded as length-of-metadata-and-data (4 bytes) followed by data,
 //   and a single read operation would get both metadata and encoded data.
 
-use std::{cmp,env,fs,io,process};
+use std::{cmp,env,process};
 use std::collections::BinaryHeap;
-use std::fs::File;
-use std::io::{Read,Write};
-use std::sync::atomic;
-use std::sync::atomic::AtomicBool;
+use std::fs::{self,File};
+use std::io::{self,Read,Write};
+use std::sync::atomic::{self,AtomicBool};
 use crossbeam_channel::{unbounded, Sender, Receiver};
 
 #[derive(PartialEq)]
@@ -581,13 +580,16 @@ impl Ord for HuffTreeItem {
 }
 
 fn build_huffman_tree(freq: &[FreqEntry]) -> Box<HuffTree> {
-    let mut priq = BinaryHeap::<HuffTreeItem>::new();
     let mut next_serial = 0u32;
-    for i in freq {
-        let t = Box::new(HuffTree { val: i.val, left: None, right: None });
-        priq.push(HuffTreeItem {weight: i.count, serial: next_serial, tree:t});
-        next_serial += 1;
-    }
+    let mut priq = BinaryHeap::from({
+        let mut priq_storage = Vec::with_capacity(freq.len());
+        for i in freq {
+            let t = Box::new(HuffTree { val: i.val, left: None, right: None });
+            next_serial += 1;
+            priq_storage.push(HuffTreeItem {weight: i.count, serial: next_serial, tree:t})
+        }
+        BinaryHeap::from(priq_storage)
+    });
     while priq.len() > 1 {
         let a = priq.pop().unwrap();
         let b = priq.pop().unwrap();
