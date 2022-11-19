@@ -588,7 +588,7 @@ fn build_huffman_tree(freq: &[FreqEntry]) -> Box<HuffTree> {
             next_serial += 1;
             priq_storage.push(HuffTreeItem {weight: i.count, serial: next_serial, tree:t})
         }
-        BinaryHeap::from(priq_storage)
+        priq_storage
     });
     while priq.len() > 1 {
         let a = priq.pop().unwrap();
