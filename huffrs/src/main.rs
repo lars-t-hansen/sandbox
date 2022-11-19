@@ -42,9 +42,10 @@
 
 mod heap;
 
-use std::{cmp,env,fs,io,process,thread,time};
+use std::{cmp,env,fs,io,process};
 use std::fs::File;
 use std::io::{Read,Write};
+use std::sync::atomic::{AtomicBool,Ordering};
 use crossbeam_channel::{unbounded, Sender, Receiver};
 
 #[derive(PartialEq)]
@@ -155,20 +156,6 @@ struct CompressState {
 
 type Item = Box<CompressState>;
 
-// Logic here
-// - create num_workers*2 work items
-// - create one single-producer multi-consumer queue 'available' that the reader will use to communicate with workers
-// - create one multi-producer single-consumer queue 'ready' that the workers will use to communicate with writers
-// - create one single-producer single-consumer queue 'done' that the writer will use to communicate with the reader
-// - the reader will read blocks in order and assign them consequtive IDs and will place them in 'available'.
-//   if it runs out of work items or input it will block on data from 'done', which then goes into the set of work items.
-//   once an item comes back in 'done' that has the id equal to the last id that was submitted after eof we're finished
-// - the worker blocks on 'available', grabs an item, processes it, and places it in 'ready'
-// - the writer grabs items from 'ready' and places them in order, and then writes them in the correct order as soon
-//   as it can, and then sends the spent item on 'done'.
-//
-// The logic for shutdown in the face of read and write errors is missing.
-
 fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> io::Result<()> {
     let mut items = Vec::<Item>::with_capacity(2*num_workers);
     for _ in 0..items.capacity() {
@@ -181,55 +168,75 @@ fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> io:
     // Various logic depends on this equality:
     assert!(items.len() == items.capacity());
 
+    let error_flag = AtomicBool::new(false);
     let (available_s, available_r) = unbounded();
     let (ready_s, ready_r) = unbounded();
     let (done_s, done_r) = unbounded();
-    let writer_thread = thread::spawn(|| writer_loop(ready_r, done_s, output) );
-    let mut worker_threads = Vec::with_capacity(num_workers);
-    for _ in 0..worker_threads.capacity() {
-        let available_r = available_r.clone();
-        let ready_s = ready_s.clone();
-        worker_threads.push(thread::spawn(|| encoder_loop(available_r, ready_s)))
-    }
-    drop(available_r);
-    drop(ready_s);
-    let res = reader_loop(items, done_r, available_s, input);
-    for w in worker_threads {
-        w.join();
-    }
-    writer_thread.join();
-    res
+    std::thread::scope(|s| {
+        let writer_thread = s.spawn(|| writer_loop(&error_flag, ready_r, done_s, output) );
+        let mut worker_threads = Vec::with_capacity(num_workers);
+        for _ in 0..worker_threads.capacity() {
+            let available_r = available_r.clone();
+            let ready_s = ready_s.clone();
+            worker_threads.push(s.spawn(|| encoder_loop(available_r, ready_s)))
+        }
+        // These are dead so drop them, to allow the closing of channels to trigger
+        // shutdown as described below.
+        drop(available_r);
+        drop(ready_s);
+
+        // The main thread is the reader thread
+        reader_loop(&error_flag, items, done_r, available_s, input);
+        for w in worker_threads {
+            let _ = w.join();
+        }
+        let _ = writer_thread.join();
+
+        // Obviously we could communicate something more interesting.
+        if error_flag.load(Ordering::Relaxed) {
+            return Err(io::Error::new(io::ErrorKind::Other, "Compression error"))
+        }
+        Ok(())
+    })
 }
 
-fn reader_loop(mut items:Vec<Item>, done: Receiver<Item>, available: Sender<Item>, mut input: fs::File) -> io::Result<()> {
+fn reader_loop(error_flag: &AtomicBool, mut items:Vec<Item>, done: Receiver<Item>, available: Sender<Item>, mut input: fs::File) {
+    // When this returns, whether normally or by error, it will close `available_s`.
+    // That will make the encoders exit their encoding loops and trigger reliable
+    // shutdown of the writer thread too.
     let mut next_read_id = 0;
     loop {
+        if error_flag.load(Ordering::Relaxed) {
+            return
+        }
         if items.len() == 0 {
             items.push(done.recv().unwrap())
         }
         let mut item = items.pop().unwrap();
-        // FIXME: Returning along the error path here will leave item dangling, which will
-        // prevent orderly shutdown in the caller, so the caller must handle the error return
-        // explicitly.  However, the encoders and writer will exit properly and any join
-        // logic in our caller should work.
-        let bytes_read = input.read(item.in_buf.as_mut_slice())?;
-        if bytes_read == 0 {
-            items.push(item);
-            break
+        match input.read(item.in_buf.as_mut_slice()) {
+            Ok(bytes_read) => {
+                if bytes_read == 0 {
+                    return
+                }
+                item.in_buf_size = bytes_read;
+                item.id = next_read_id;
+                next_read_id += 1;
+                available.send(item).unwrap();
+            }
+            Err(_) => {
+                error_flag.store(true, Ordering::Relaxed);
+            }
         }
-        item.in_buf_size = bytes_read;
-        item.id = next_read_id;
-        next_read_id += 1;
-        available.send(item).unwrap();
     }
-    while items.len() < items.capacity() {
-        items.push(done.recv().unwrap())
-    }
-    Ok(())
-    // Closing `available_s` will make the encoders exit their encoding loops
 }
 
 fn encoder_loop(available: Receiver<Item>, ready: Sender<Item>) {
+    // The reader closes `available_r` to signal shutdown, and when we fail to
+    // receive we exit the loop.
+    //
+    // When this leaves the worker loop it will close its copy of `ready_s`,
+    // and once all the workers have closed, shutdown will be triggered in
+    // the writer too.
     let mut freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
     let mut dict = Box::new([DictItem {width: 0, bits: 0}; 256]);
     loop {
@@ -243,34 +250,48 @@ fn encoder_loop(available: Receiver<Item>, ready: Sender<Item>) {
             Err(_) => { break }
         }
     }
-    // Closing all of the `ready_s` will make the writer exit its write loop and flush the file
 }
 
-fn writer_loop(ready: Receiver<Item>, done: Sender<Item>, mut output: fs::File) -> io::Result<()> {
+fn writer_loop(error_flag: &AtomicBool, ready: Receiver<Item>, done: Sender<Item>, mut output: fs::File) {
+    // The workers will shut down the `ready_s` channel and trigger shutdown of the writer.
+    //
+    // The writer can also shut down due to write error.  Once it discovers a write error it sets the error
+    // flag and then consumes input without processing it, apart from forwarding the item to its consumer.  
+    // The reader and the workers will stop producing input for the writer once they see that the error flag
+    // is set.
     let mut next_write_id = 0;
     let mut queue = heap::Heap::<Item, isize>::new();
+    let mut has_error = false;
     loop {
         match ready.recv() {
             Ok(item) => {
                 queue.insert(-(item.id as isize), item);
                 while queue.len() > 0 && queue.max_weight() == next_write_id {
                     let (mut item, _) = queue.extract_max();
-        
-                    let meta_data = &item.meta_buf[..item.meta_buf_size];
-                    // FIXME: Shutdown logic in the face of write error
-                    output.write(meta_data)?;
+     
+                    if !has_error {
+                        let meta_data = &item.meta_buf[..item.meta_buf_size];
+                        if output.write(meta_data).is_err() {
+                            error_flag.store(true, Ordering::Relaxed);
+                            has_error = true;
+                        }
+                    }
 
-                    let out_data = if item.out_buf_size == 0 { 
-                        &item.in_buf[..item.in_buf_size]
-                    } else {
-                        &item.out_buf[..item.out_buf_size]
-                    };
-                    // FIXME: Shutdown logic in the face of write error
-                    output.write(out_data)?;
+                    if !has_error {
+                        let out_data = if item.out_buf_size == 0 { 
+                            &item.in_buf[..item.in_buf_size]
+                        } else {
+                            &item.out_buf[..item.out_buf_size]
+                        };
+                        if output.write(out_data).is_err() {
+                            error_flag.store(true, Ordering::Relaxed);
+                            has_error = true;
+                        }
+                    }
 
                     item.id = 0;
                     next_write_id += 1;
-                    done.send(item).unwrap();
+                    let _ = done.send(item);
                 }
             }
             Err(_) => {
@@ -279,9 +300,11 @@ fn writer_loop(ready: Receiver<Item>, done: Sender<Item>, mut output: fs::File) 
             }
         }
     }
-    // FIXME: Shutdown logic in the face of write error
-    output.sync_all()?;
-    Ok(())
+    if !has_error {
+        if output.sync_all().is_err() {
+            error_flag.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 fn encode_block<'a, 'b>(input: &'b [u8], freq_buf: &mut [FreqEntry], dict: &mut [DictItem], meta_buf: &'a mut [u8], out_buf: &'b mut [u8]) ->
