@@ -40,12 +40,12 @@
 //   sensibly be encoded as length-of-metadata-and-data (4 bytes) followed by data,
 //   and a single read operation would get both metadata and encoded data.
 
-mod heap;
-
 use std::{cmp,env,fs,io,process};
+use std::collections::BinaryHeap;
 use std::fs::File;
 use std::io::{Read,Write};
-use std::sync::atomic::{AtomicBool,Ordering};
+use std::sync::atomic;
+use std::sync::atomic::AtomicBool;
 use crossbeam_channel::{unbounded, Sender, Receiver};
 
 #[derive(PartialEq)]
@@ -154,6 +154,32 @@ struct CompressState {
     meta_buf: Box<[u8; META_SIZE]>, // encoder updates this
 }
 
+// One CompressState is "greater" than another for the purposes of BinaryHeap if
+// its ID is smaller than the other's ID
+
+impl PartialEq for CompressState {
+    fn eq(&self, other: &Self) -> bool {
+        return self.id == other.id
+    }
+}
+impl Eq for CompressState {}
+impl PartialOrd for CompressState {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for CompressState {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        if self.id < other.id {
+            return cmp::Ordering::Greater
+        }
+        if self.id > other.id {
+            return cmp::Ordering::Less
+        }
+        return cmp::Ordering::Equal
+    }
+}
+
 type Item = Box<CompressState>;
 
 fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> io::Result<()> {
@@ -193,7 +219,7 @@ fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> io:
         let _ = writer_thread.join();
 
         // Obviously we could communicate something more interesting.
-        if error_flag.load(Ordering::Relaxed) {
+        if error_flag.load(atomic::Ordering::Relaxed) {
             return Err(io::Error::new(io::ErrorKind::Other, "Compression error"))
         }
         Ok(())
@@ -206,7 +232,7 @@ fn reader_loop(error_flag: &AtomicBool, mut items:Vec<Item>, done: Receiver<Item
     // shutdown of the writer thread too.
     let mut next_read_id = 0;
     loop {
-        if error_flag.load(Ordering::Relaxed) {
+        if error_flag.load(atomic::Ordering::Relaxed) {
             return
         }
         if items.len() == 0 {
@@ -224,7 +250,7 @@ fn reader_loop(error_flag: &AtomicBool, mut items:Vec<Item>, done: Receiver<Item
                 available.send(item).unwrap();
             }
             Err(_) => {
-                error_flag.store(true, Ordering::Relaxed);
+                error_flag.store(true, atomic::Ordering::Relaxed);
             }
         }
     }
@@ -260,19 +286,19 @@ fn writer_loop(error_flag: &AtomicBool, ready: Receiver<Item>, done: Sender<Item
     // The reader and the workers will stop producing input for the writer once they see that the error flag
     // is set.
     let mut next_write_id = 0;
-    let mut queue = heap::Heap::<Item, isize>::new();
+    let mut queue = BinaryHeap::<Item>::new();
     let mut has_error = false;
     loop {
         match ready.recv() {
             Ok(item) => {
-                queue.insert(-(item.id as isize), item);
-                while queue.len() > 0 && queue.max_weight() == next_write_id {
-                    let (mut item, _) = queue.extract_max();
+                queue.push(item);
+                while !queue.is_empty() && queue.peek().unwrap().id == next_write_id {
+                    let mut item = queue.pop().unwrap();
      
                     if !has_error {
                         let meta_data = &item.meta_buf[..item.meta_buf_size];
                         if output.write(meta_data).is_err() {
-                            error_flag.store(true, Ordering::Relaxed);
+                            error_flag.store(true, atomic::Ordering::Relaxed);
                             has_error = true;
                         }
                     }
@@ -284,7 +310,7 @@ fn writer_loop(error_flag: &AtomicBool, ready: Receiver<Item>, done: Sender<Item
                             &item.out_buf[..item.out_buf_size]
                         };
                         if output.write(out_data).is_err() {
-                            error_flag.store(true, Ordering::Relaxed);
+                            error_flag.store(true, atomic::Ordering::Relaxed);
                             has_error = true;
                         }
                     }
@@ -302,7 +328,7 @@ fn writer_loop(error_flag: &AtomicBool, ready: Receiver<Item>, done: Sender<Item
     }
     if !has_error {
         if output.sync_all().is_err() {
-            error_flag.store(true, Ordering::Relaxed);
+            error_flag.store(true, atomic::Ordering::Relaxed);
         }
     }
 }
@@ -518,15 +544,29 @@ struct HuffTree {
     val: u8
 }
 
-#[derive(Clone,Copy,PartialEq)]
-struct Weight {
+struct HuffTreeItem {
+    weight: u32,
     serial: u32,
-    weight: u32
+    tree: Box<HuffTree>
 }
 
-impl PartialOrd for Weight  {
-    fn partial_cmp(&self, other: &Self) ->  Option<cmp::Ordering> {
-        Some(if self.weight < other.weight {
+impl PartialEq for HuffTreeItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.weight == other.weight && self.serial == other.serial
+    }
+}
+
+impl Eq for HuffTreeItem {}
+
+impl PartialOrd for HuffTreeItem {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HuffTreeItem {
+    fn cmp(&self, other: &Self) ->  cmp::Ordering {
+        if self.weight < other.weight {
             cmp::Ordering::Greater  // smaller values have higher priorities
         } else if self.weight > other.weight {
             cmp::Ordering::Less     // and vice versa
@@ -536,26 +576,26 @@ impl PartialOrd for Weight  {
             cmp::Ordering::Less     // and vice versa
         } else {
             cmp::Ordering::Equal
-        })
+        }
     }
 }
 
 fn build_huffman_tree(freq: &[FreqEntry]) -> Box<HuffTree> {
-    let mut priq = heap::Heap::<Box<HuffTree>, Weight>::new();
+    let mut priq = BinaryHeap::<HuffTreeItem>::new();
     let mut next_serial = 0u32;
     for i in freq {
         let t = Box::new(HuffTree { val: i.val, left: None, right: None });
-        priq.insert(Weight{serial: next_serial, weight: i.count}, t);
+        priq.push(HuffTreeItem {weight: i.count, serial: next_serial, tree:t});
         next_serial += 1;
     }
     while priq.len() > 1 {
-        let (a, wa) = priq.extract_max();
-        let (b, wb) = priq.extract_max();
-        let t = Box::new(HuffTree { val: 0, left: Some(a), right: Some(b)});
-        priq.insert(Weight{serial: next_serial, weight: wa.weight + wb.weight}, t);
+        let a = priq.pop().unwrap();
+        let b = priq.pop().unwrap();
+        let t = Box::new(HuffTree { val: 0, left: Some(a.tree), right: Some(b.tree)});
+        priq.push(HuffTreeItem {weight: a.weight + b.weight, serial: next_serial, tree: t});
         next_serial += 1;
     }
-    priq.extract_max().0
+    priq.pop().unwrap().tree
 }
 
 // Byte frequency count.  The returned slice has counts for bytes with non-zero frequencies
