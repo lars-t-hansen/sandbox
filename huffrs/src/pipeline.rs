@@ -15,33 +15,36 @@ use crossbeam_channel as channel;
 
 pub trait ItemBase {
     new() -> Self;
+
+    // the id is used by the pipeline to indicate ordering of work items, generally
+    // the other methods on Item should not inspect it.
     id(&self) -> usize;
     set_id(&mut self, usize: id);
+
+    // produce returns Ok(true) for work obtained, Ok(false) for orderly end of input
+    produce(&mut self, input: &mut fs::File) -> Result<bool, String>;
+    work(&mut self);
+    consume(&mut self, output: &mut fs::File) -> Result<(), String>;
 }
 
-pub trait ExtraBase {
+pub trait WorkerData {
     new() -> Self;
 }
 
-struct Pipeline<T: ItemBase + Send, U: ExtraBase> {
-    error_flag: thread::AtomicBool,
-    writer_thread: thread::Thread,
-    worker_threads: Vec<thread::Thread>,
-    worker_storage: Vec<U>,
+pub struct Pipeline<Item: ItemBase + Send, Aux: WorkerData> {
 }
 
-impl<T, U> Pipeline<T, U> {
-    fn new(num_workers: usize, queue_size: usize) -> Pipeline<T, U> {
-        let mut items = Vec::<T>::with_capacity(2*num_workers);
+impl<Item: ItemBase + Send, Extra: ExtraBase> Pipeline<Item, Extra> {
+    fn run(num_workers: usize, queue_size: usize,  input: &mut fs::File, output: &mut fs::File) -> Result<(), String> {
+        let mut items = Vec::<Item>::with_capacity(2*num_workers);
         for _ in 0..items.capacity() {
             items.push(T::new())
         }
-        for _
 
         // Various logic depends on this equality:
         assert!(items.len() == items.capacity());
     
-        let error_flag = AtomicBool::new(false);
+        let error_flag = Cell::<AtomicBool>::new(false);
         let (available_s, available_r) = channel::unbounded();
         let (ready_s, ready_r) = channel::unbounded();
         let (done_s, done_r) = channel::unbounded();
@@ -60,15 +63,12 @@ impl<T, U> Pipeline<T, U> {
             drop(available_r);
             drop(ready_s);
         }
-        Pipeline {
+        let mut p = Pipeline {
             worker_threads,
             writer_thread,
             producer: || producer_loop(&error_flag, items, done_r, available_s) }
-    }
-
-    // This consumes the pipeline object.
-    fn go(mut self) -> io::Result<()> {
-        self.producer()
+        
+        Pipeline::producer_loop(...);
         for w in self.worker_threads {
             let _ = w.join();
         }
@@ -81,13 +81,13 @@ impl<T, U> Pipeline<T, U> {
         Ok(())
     }
 
-    fn reader_loop(&mut self, error_flag: &AtomicBool, mut items:Vec<Item>, done: Receiver<Item>, available: Sender<Item>, mut input: fs::File) {
+    fn producer_loop(&mut self, mut items:Vec<Item>, done: Receiver<Item>, available: Sender<Item>, mut input: fs::File) {
         // When this returns, whether normally or by error, it will close `available_s`.
         // That will make the encoders exit their encoding loops and trigger reliable
         // shutdown of the writer thread too.
         let mut next_read_id = 0;
         loop {
-            if error_flag.load(atomic::Ordering::Relaxed) {
+            if self.error_flag.load(atomic::Ordering::Relaxed) {
                 return
             }
             if items.len() == 0 {
@@ -108,13 +108,13 @@ impl<T, U> Pipeline<T, U> {
                     available.send(item).unwrap();
                 }
                 Err(_) => {
-                    error_flag.store(true, atomic::Ordering::Relaxed);
+                    self.error_flag.store(true, atomic::Ordering::Relaxed);
                 }
             }
         }
     }
 
-    fn encoder_loop(available: Receiver<Item>, ready: Sender<Item>) {
+    fn encoder_loop(encode: fn(m: &mut T, extra: &mut U) -> Result<()>, available: Receiver<Item>, ready: Sender<Item>) {
         // The reader closes `available_r` to signal shutdown, and when we fail to
         // receive we exit the loop.
         //
@@ -129,6 +129,7 @@ impl<T, U> Pipeline<T, U> {
         loop {
             match available.recv() {
                 Ok(mut b) => {
+                    
                     let input = &b.in_buf.as_slice()[0..b.in_buf_size];
                     (b.meta_buf_size, b.out_buf_size) =
                         encode_block(input, freq_buf.as_mut_slice(), dict.as_mut_slice(), b.meta_buf.as_mut_slice(), b.out_buf.as_mut_slice());
