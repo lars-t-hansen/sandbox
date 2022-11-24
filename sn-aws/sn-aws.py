@@ -1,49 +1,53 @@
-# Task 1: make it work
-# Task 2: can we use the API and not go via the CLI?
-# Task 3: can we detect authorization failure and provide a sensible error message or ask for authority?
-
+# SneakerNet
+#
 # Usage:
 #   sn up filename    // Filename can have path delimiters
 #   sn down filename [dest] // Filename can have no path delimiters but dest can
 #   sn ls pattern     // Pattern can have no path delimiters, and is prefix-only?
 
+# (DONE) Task 1: make it work
+# (DONE) Task 2: can we use the API and not go via the CLI?
+# Task 3: can we detect authorization failure and provide a sensible error message or ask for authority?
+#     The credentials can be passed explicitly when we create the s3 resource, we just have to
+#     obtain them from somewhere
+# Task 4: can we use standard command line parsing?
+
+import boto3
 import os
 import re
 import sys
 
-def doit(cmd):
-    # sys.stdout.write(cmd + "\n")
-    os.system(cmd)
-    
+s3 = boto3.resource('s3')
+
 def up():
-    global AWS_PREFIX
-    if len(sys.argv) < 3:
+    if len(sys.argv) != 3:
         usage()
     fn = sys.argv[2]
     assert_valid_filename(fn)
     assert_file_exists(fn)
-    # FIXME: Should allow path name in the file, but should be reduced to base name in the
+    # TODO: Should allow path name in the file, but should be reduced to base name in the
     # destination
     #
-    # FIXME: Could allow destination to be specified separately
-    doit(f"aws s3 cp {fn} {AWS_PREFIX}{fn}")
+    # TODO: Could allow destination to be specified separately
+    s3.Bucket(AWS_SN_BUCKET).upload_file(fn, 'TRANSIT/' + fn)
 
 def down():
-    global AWS_PREFIX
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
         usage()
     fn = sys.argv[2]
-    dest = fn if len(sys.argv) < 4 else sys.argv[3]
+    dest = sys.argv[3] fn if len(sys.argv) == 4 else fn
     assert_valid_filename(fn)
     assert_file_not_exists(dest)
-    # FIXME: Should allow path name in the file, but should be reduced to the base name in
+    # TODO: Should allow path name in the file, but should be reduced to the base name in
     # the source?  ie, sn down a/b/c gets "c" from the server and stores it locally at a/b/
-    doit(f"aws s3 cp {AWS_PREFIX}{fn} {dest}")
+    s3.Bucket(AWS_SN_BUCKET).download_file('TRANSIT/' + fn, fn)
 
 def ls():
-    global AWS_PREFIX
-    pattern = sys.argv[2] if len(sys.argv) >= 3 else ""
-    doit(f"aws s3 ls {AWS_PREFIX}{pattern}")
+    if len(sys.argv) > 3:
+        usage()
+    pattern = sys.argv[2] if len(sys.argv) == 3 else ""
+    for x in s3.Bucket(AWS_SN_BUCKET).objects.filter(Prefix="TRANSIT/"):
+        print(x.key)
 
 def assert_valid_filename(fn):
     if not re.compile(r"^[-a-zA-Z0-9._]+$").match(fn):
@@ -72,7 +76,7 @@ def fail(msg):
 if not "AWS_SN_BUCKET" in os.environ:
     fail("No value for AWS_SN_BUCKET in environment")
 
-AWS_PREFIX = f"s3://{os.environ['AWS_SN_BUCKET']}/TRANSIT/"
+AWS_SN_BUCKET = os.environ['AWS_SN_BUCKET']
 
 if len(sys.argv) < 2:
     usage()
