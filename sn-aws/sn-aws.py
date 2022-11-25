@@ -35,7 +35,7 @@ def down():
     if len(sys.argv) < 3 or len(sys.argv) > 4:
         usage()
     fn = sys.argv[2]
-    dest = sys.argv[3] fn if len(sys.argv) == 4 else fn
+    dest = sys.argv[3] if len(sys.argv) == 4 else fn
     assert_valid_filename(fn)
     assert_file_not_exists(dest)
     # TODO: Should allow path name in the file, but should be reduced to the base name in
