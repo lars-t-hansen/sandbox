@@ -33,19 +33,19 @@
 // This format has a couple of bugs:
 //
 // - since there will be no dictionary entries whose frequency is zero, the frequency
-//   value can be encoded as f-1, so that a 16-bit field is sufficient.
+//   value could be encoded as f-1, so that a 16-bit field would be sufficient.
 // - we have to perform three read operations to read a compressed block: first two
 //   bytes to get the metadata length (the dictionary size), then the metadata to
 //   get the size of the encoded block, then the encoded block.  This would more
 //   sensibly be encoded as length-of-metadata-and-data (4 bytes) followed by data,
 //   and a single read operation would get both metadata and encoded data.
 
+mod pipeline;
+
 use std::{cmp,env,process};
 use std::collections::BinaryHeap;
 use std::fs::{self,File};
 use std::io::{self,Read,Write};
-use std::sync::atomic::{self,AtomicBool};
-use crossbeam_channel::{unbounded, Sender, Receiver};
 
 #[derive(PartialEq)]
 enum Op {
@@ -145,8 +145,10 @@ fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
 }
 
 // This is used to communicate data among threads and also avoids massive heap allocation - we reuse the data.
+// The pipeline may create more of these than there are workers.
+
 struct CompressState {
-    id: usize,                      // reader sets this, and writer clears it
+    id: usize,                      // pipeline owns this
     in_buf_size: usize,             // reader sets this
     out_buf_size: usize,            // encoder sets this, zero if no encoded data (copy input)
     meta_buf_size: usize,           // encoder sets this
@@ -156,19 +158,26 @@ struct CompressState {
 }
 
 // One CompressState is "greater" than another for the purposes of BinaryHeap if
-// its ID is smaller than the other's ID
+// its ID is smaller than the other's ID.  This is part of the contract with the
+// pipeline.
+//
+// TODO: However this breaks encapsulation and it would be better for the
+// ID to be moved out of CompressState and into some structure in the pipeline.
 
 impl PartialEq for CompressState {
     fn eq(&self, other: &Self) -> bool {
         return self.id == other.id
     }
 }
+
 impl Eq for CompressState {}
+
 impl PartialOrd for CompressState {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
+
 impl Ord for CompressState {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         if self.id < other.id {
@@ -186,24 +195,24 @@ struct CompressWorkerData {
     dict: Box<[DictItem; 256]>
 }
 
-impl CompressWorkerData {
+impl pipeline::WorkerData for CompressWorkerData {
     fn new() -> CompressWorkerData {
-        let mut freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
-        let mut dict = Box::new([DictItem {width: 0, bits: 0}; 256]);
+        let freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
+        let dict = Box::new([DictItem {width: 0, bits: 0}; 256]);
         CompressWorkerData { freq_buf, dict }
     }
 }
 
 fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> Result<(), String> {
-    Pipeline::<Box<CompressState>,CompressWorkerData>::run(num_workers, num_workers*2, input, output)
+    pipeline::run::<CompressWorkerData, CompressState>(num_workers, num_workers*2, input, output)
 }
 
-impl CompressState {
-    fn new() -> Box<CompressState> {
+impl pipeline::Item<CompressWorkerData> for CompressState {
+    fn new() -> CompressState {
         let in_buf = Box::new([0u8; 65536]);
         let out_buf = Box::new([0u8; 65536]);
         let meta_buf = Box::new([0u8; META_SIZE]);
-        Box::new(CompressState { id: 0, in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf })
+        CompressState { id: 0, in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf }
     }
 
     fn id(&self) -> usize {
@@ -359,11 +368,9 @@ fn decode_metadata<'a>(metadata: &[u8], freq_len: usize, freq_buf: &'a mut [Freq
     let mut freq = &mut freq_buf[..freq_len];
     let mut metaloc = 0;
     if freq_len > 0 {
-        let mut i = 0;
-        while i < freq_len {
+        for i in 0..freq_len {
             (metaloc, freq[i].val) = get_u8(metadata, metaloc);
             (metaloc, freq[i].count) = get_u32(metadata, metaloc);
-            i += 1;
         }
         let mut item : u32;
         (metaloc, item) = get_u32(metadata, metaloc);
@@ -539,11 +546,9 @@ struct FreqEntry {
 }
 
 fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a [FreqEntry] {
-    let mut i = 0;
-    while i < 256 {
+    for i in 0..256 {
         freq[i].val = i as u8;
         freq[i].count = 0;
-        i += 1;
     }
 
     for i in bytes {
@@ -562,7 +567,7 @@ fn compute_byte_frequencies<'a>(bytes: &[u8], freq: &'a mut [FreqEntry]) -> &'a 
         }
     });
 
-    i = 256;
+    let mut i = 256;
     while i > 0 && freq[i-1].count == 0 {
         i -= 1;
     }
