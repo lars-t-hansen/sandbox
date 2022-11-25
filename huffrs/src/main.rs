@@ -148,7 +148,6 @@ fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
 // The pipeline may create more of these than there are workers.
 
 struct CompressState {
-    id: usize,                      // pipeline owns this
     in_buf_size: usize,             // reader sets this
     out_buf_size: usize,            // encoder sets this, zero if no encoded data (copy input)
     meta_buf_size: usize,           // encoder sets this
@@ -157,42 +156,16 @@ struct CompressState {
     meta_buf: Box<[u8; META_SIZE]>, // encoder updates this
 }
 
-// One CompressState is "greater" than another for the purposes of BinaryHeap if
-// its ID is smaller than the other's ID.  This is part of the contract with the
-// pipeline.
-//
-// TODO: However this breaks encapsulation and it would be better for the
-// ID to be moved out of CompressState and into some structure in the pipeline.
-
-impl PartialEq for CompressState {
-    fn eq(&self, other: &Self) -> bool {
-        return self.id == other.id
-    }
-}
-
-impl Eq for CompressState {}
-
-impl PartialOrd for CompressState {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CompressState {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        if self.id < other.id {
-            return cmp::Ordering::Greater
-        }
-        if self.id > other.id {
-            return cmp::Ordering::Less
-        }
-        return cmp::Ordering::Equal
-    }
-}
+// This is used for auxiliary compression data.  The pipeline creates one of these for each worker,
+// and reuses it for successive work items.
 
 struct CompressWorkerData {
     freq_buf: Box<[FreqEntry; 256]>,
     dict: Box<[DictItem; 256]>
+}
+
+fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> Result<(), String> {
+    pipeline::run::<CompressWorkerData, CompressState>(num_workers, num_workers*2, input, output)
 }
 
 impl pipeline::WorkerData for CompressWorkerData {
@@ -203,24 +176,12 @@ impl pipeline::WorkerData for CompressWorkerData {
     }
 }
 
-fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> Result<(), String> {
-    pipeline::run::<CompressWorkerData, CompressState>(num_workers, num_workers*2, input, output)
-}
-
 impl pipeline::WorkItem<CompressWorkerData> for CompressState {
     fn new() -> CompressState {
         let in_buf = Box::new([0u8; 65536]);
         let out_buf = Box::new([0u8; 65536]);
         let meta_buf = Box::new([0u8; META_SIZE]);
-        CompressState { id: 0, in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf }
-    }
-
-    fn id(&self) -> usize {
-        self.id
-    }
-
-    fn set_id(&mut self, id: usize) {
-        self.id = id;
+        CompressState { in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf }
     }
 
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String> {

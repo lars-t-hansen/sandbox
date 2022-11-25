@@ -9,7 +9,7 @@
 // The pipeline handles communication, error signalling, and so on
 
 use std::collections::BinaryHeap;
-use std::fs;
+use std::{cmp,fs};
 use std::sync::atomic::{self,AtomicBool};
 use crossbeam_channel as channel;
 
@@ -19,16 +19,8 @@ pub trait WorkerData {
 }
 
 // Per-work-item data.
-pub trait WorkItem<Aux: WorkerData>: Send + Ord {
+pub trait WorkItem<Aux: WorkerData>: Send {
     fn new() -> Self;
-
-    // the id is used by the pipeline to indicate ordering of work items, generally
-    // the other methods on WorkItem should not inspect it.
-    //
-    // TODO: Move the id out of the WorkItem and into some data structure here.  Then
-    // the Ord requirement on WorkItem would also move into this module.
-    fn id(&self) -> usize;
-    fn set_id(&mut self, id: usize);
 
     // produce returns Ok(true) for work obtained, Ok(false) for orderly end of input
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String>;
@@ -36,10 +28,49 @@ pub trait WorkItem<Aux: WorkerData>: Send + Ord {
     fn consume(&mut self, output: &mut fs::File) -> Result<(), String>;
 }
 
-pub fn run<Aux: WorkerData, Work: WorkItem<Aux>>(num_workers: usize, queue_size: usize, input: fs::File, output: fs::File) -> Result<(), String> {
-    let mut items = Vec::<Box<Work>>::with_capacity(queue_size);
+struct Item<Work> {
+    id: usize,
+    it: Box<Work>
+}
+
+// One work item is "greater" than another for the purposes of BinaryHeap 
+// (used in the consumer) if its ID is smaller than the other's ID.
+
+impl<Work> PartialEq for Item<Work> {
+    fn eq(&self, other: &Self) -> bool {
+        return self.id == other.id
+    }
+}
+
+impl<Work> Eq for Item<Work> {}
+
+impl<Work> PartialOrd for Item<Work> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<Work> Ord for Item<Work> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        if self.id < other.id {
+            return cmp::Ordering::Greater
+        }
+        if self.id > other.id {
+            return cmp::Ordering::Less
+        }
+        return cmp::Ordering::Equal
+    }
+}
+
+pub fn run<Aux: WorkerData, Work: WorkItem<Aux>>(
+    num_workers: usize, 
+    queue_size: usize, 
+    input: fs::File, 
+    output: fs::File) -> Result<(), String>
+{
+    let mut items = Vec::<Item<Work>>::with_capacity(queue_size);
     for _ in 0..queue_size {
-        items.push(Box::new(Work::new()))
+        items.push(Item::<Work> { id: 0, it: Box::new(Work::new()) })
     }
 
     // Various logic depends on this equality:
@@ -76,9 +107,13 @@ pub fn run<Aux: WorkerData, Work: WorkItem<Aux>>(num_workers: usize, queue_size:
     })
 }
 
-fn producer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, mut items:Vec<Box<Work>>,
-                    done: channel::Receiver<Box<Work>>, available: channel::Sender<Box<Work>>,
-                    mut input: fs::File) {
+fn producer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(
+    error_flag: &AtomicBool,
+    mut items:Vec<Item<Work>>,
+    done: channel::Receiver<Item<Work>>,
+    available: channel::Sender<Item<Work>>,
+    mut input: fs::File)
+{
     // When this returns, whether normally or by error, it will close `available_s`.
     // That will make the encoders exit their encoding loops and trigger reliable
     // shutdown of the writer thread too.
@@ -91,12 +126,12 @@ fn producer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, 
             items.push(done.recv().unwrap())
         }
         let mut item = items.pop().unwrap();
-        match item.produce(&mut input) {
+        match item.it.produce(&mut input) {
             Ok(got_input) => {
                 if !got_input {
                     return
                 }
-                item.set_id(next_read_id);
+                item.id = next_read_id;
                 next_read_id += 1;
                 available.send(item).unwrap();
             }
@@ -107,7 +142,10 @@ fn producer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, 
     }
 }
 
-fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(available: channel::Receiver<Box<Work>>, ready: channel::Sender<Box<Work>>) {
+fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(
+    available: channel::Receiver<Item<Work>>, 
+    ready: channel::Sender<Item<Work>>)
+{
     // The reader closes `available_r` to signal shutdown, and when we fail to
     // receive we exit the loop.
     //
@@ -118,7 +156,7 @@ fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(available: channel::Receive
     loop {
         match available.recv() {
             Ok(mut b) => {
-                b.work(&mut aux);
+                b.it.work(&mut aux);
                 ready.send(b).unwrap();
             }
             Err(_) => { break }
@@ -126,7 +164,12 @@ fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(available: channel::Receive
     }
 }
 
-fn consumer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, ready: channel::Receiver<Box<Work>>, done: channel::Sender<Box<Work>>, mut output: fs::File) {
+fn consumer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(
+    error_flag: &AtomicBool, 
+    ready: channel::Receiver<Item<Work>>, 
+    done: channel::Sender<Item<Work>>, 
+    mut output: fs::File)
+{
     // The workers will shut down the `ready_s` channel and trigger shutdown of the writer.
     //
     // The writer can also shut down due to write error.  Once it discovers a write error it sets the error
@@ -134,23 +177,23 @@ fn consumer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, 
     // The reader and the workers will stop producing input for the writer once they see that the error flag
     // is set.
     let mut next_write_id = 0;
-    let mut queue = BinaryHeap::<Box<Work>>::new();
+    let mut queue = BinaryHeap::<Item<Work>>::new();
     let mut has_error = false;
     loop {
         match ready.recv() {
             Ok(item) => {
                 queue.push(item);
-                while !queue.is_empty() && queue.peek().unwrap().id() == next_write_id {
+                while !queue.is_empty() && queue.peek().unwrap().id == next_write_id {
                     let mut item = queue.pop().unwrap();
                     if !has_error {
-                        match item.consume(&mut output) {
+                        match item.it.consume(&mut output) {
                             Err(_) => {
                                 has_error = true
                             }
                             Ok(_) => {}
                         }
                     }
-                    item.set_id(0);
+                    item.id = 0;
                     next_write_id += 1;
                     let _ = done.send(item);
                 }
