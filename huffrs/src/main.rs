@@ -207,7 +207,7 @@ fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> Res
     pipeline::run::<CompressWorkerData, CompressState>(num_workers, num_workers*2, input, output)
 }
 
-impl pipeline::Item<CompressWorkerData> for CompressState {
+impl pipeline::WorkItem<CompressWorkerData> for CompressState {
     fn new() -> CompressState {
         let in_buf = Box::new([0u8; 65536]);
         let out_buf = Box::new([0u8; 65536]);

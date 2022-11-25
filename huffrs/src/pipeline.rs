@@ -19,14 +19,14 @@ pub trait WorkerData {
 }
 
 // Per-work-item data.
-pub trait Item<Aux: WorkerData>: Send + Ord {
+pub trait WorkItem<Aux: WorkerData>: Send + Ord {
     fn new() -> Self;
 
     // the id is used by the pipeline to indicate ordering of work items, generally
-    // the other methods on Item should not inspect it.
+    // the other methods on WorkItem should not inspect it.
     //
-    // TODO: Move the id out of the Item and into some data structure here.  Then
-    // the Ord requirement on Item would also move into this module.
+    // TODO: Move the id out of the WorkItem and into some data structure here.  Then
+    // the Ord requirement on WorkItem would also move into this module.
     fn id(&self) -> usize;
     fn set_id(&mut self, id: usize);
 
@@ -36,10 +36,10 @@ pub trait Item<Aux: WorkerData>: Send + Ord {
     fn consume(&mut self, output: &mut fs::File) -> Result<(), String>;
 }
 
-pub fn run<Aux: WorkerData, WorkItem: Item<Aux>>(num_workers: usize, queue_size: usize, input: fs::File, output: fs::File) -> Result<(), String> {
-    let mut items = Vec::<Box<WorkItem>>::with_capacity(queue_size);
+pub fn run<Aux: WorkerData, Work: WorkItem<Aux>>(num_workers: usize, queue_size: usize, input: fs::File, output: fs::File) -> Result<(), String> {
+    let mut items = Vec::<Box<Work>>::with_capacity(queue_size);
     for _ in 0..queue_size {
-        items.push(Box::new(WorkItem::new()))
+        items.push(Box::new(Work::new()))
     }
 
     // Various logic depends on this equality:
@@ -76,8 +76,8 @@ pub fn run<Aux: WorkerData, WorkItem: Item<Aux>>(num_workers: usize, queue_size:
     })
 }
 
-fn producer_loop<Aux: WorkerData, WorkItem: Item<Aux>>(error_flag: &AtomicBool, mut items:Vec<Box<WorkItem>>,
-                    done: channel::Receiver<Box<WorkItem>>, available: channel::Sender<Box<WorkItem>>,
+fn producer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, mut items:Vec<Box<Work>>,
+                    done: channel::Receiver<Box<Work>>, available: channel::Sender<Box<Work>>,
                     mut input: fs::File) {
     // When this returns, whether normally or by error, it will close `available_s`.
     // That will make the encoders exit their encoding loops and trigger reliable
@@ -107,7 +107,7 @@ fn producer_loop<Aux: WorkerData, WorkItem: Item<Aux>>(error_flag: &AtomicBool, 
     }
 }
 
-fn worker_loop<Aux: WorkerData, WorkItem: Item<Aux>>(available: channel::Receiver<Box<WorkItem>>, ready: channel::Sender<Box<WorkItem>>) {
+fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(available: channel::Receiver<Box<Work>>, ready: channel::Sender<Box<Work>>) {
     // The reader closes `available_r` to signal shutdown, and when we fail to
     // receive we exit the loop.
     //
@@ -126,7 +126,7 @@ fn worker_loop<Aux: WorkerData, WorkItem: Item<Aux>>(available: channel::Receive
     }
 }
 
-fn consumer_loop<Aux: WorkerData, WorkItem: Item<Aux>>(error_flag: &AtomicBool, ready: channel::Receiver<Box<WorkItem>>, done: channel::Sender<Box<WorkItem>>, mut output: fs::File) {
+fn consumer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(error_flag: &AtomicBool, ready: channel::Receiver<Box<Work>>, done: channel::Sender<Box<Work>>, mut output: fs::File) {
     // The workers will shut down the `ready_s` channel and trigger shutdown of the writer.
     //
     // The writer can also shut down due to write error.  Once it discovers a write error it sets the error
@@ -134,7 +134,7 @@ fn consumer_loop<Aux: WorkerData, WorkItem: Item<Aux>>(error_flag: &AtomicBool, 
     // The reader and the workers will stop producing input for the writer once they see that the error flag
     // is set.
     let mut next_write_id = 0;
-    let mut queue = BinaryHeap::<Box<WorkItem>>::new();
+    let mut queue = BinaryHeap::<Box<Work>>::new();
     let mut has_error = false;
     loop {
         match ready.recv() {
