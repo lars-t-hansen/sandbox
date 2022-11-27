@@ -147,13 +147,20 @@ fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
 // This is used to communicate data among threads and also avoids massive heap allocation - we reuse the data.
 // The pipeline may create more of these than there are workers.
 
-struct CompressState {
+struct WorkItemState {
     in_buf_size: usize,             // reader sets this
     out_buf_size: usize,            // encoder sets this, zero if no encoded data (copy input)
     meta_buf_size: usize,           // encoder sets this
     in_buf: Box<[u8; 65536]>,       // reader updates this
     out_buf: Box<[u8; 65536]>,      // encoder updates this
     meta_buf: Box<[u8; META_SIZE]>, // encoder updates this
+}
+
+fn new_work_item_state() -> WorkItemState {
+    let in_buf = Box::new([0u8; 65536]);
+    let out_buf = Box::new([0u8; 65536]);
+    let meta_buf = Box::new([0u8; META_SIZE]);
+    WorkItemState { in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf }
 }
 
 // This is used for auxiliary compression data.  The pipeline creates one of these for each worker,
@@ -176,12 +183,9 @@ impl pipeline::WorkerData for CompressWorkerData {
     }
 }
 
-impl pipeline::WorkItem<CompressWorkerData> for CompressState {
-    fn new() -> CompressState {
-        let in_buf = Box::new([0u8; 65536]);
-        let out_buf = Box::new([0u8; 65536]);
-        let meta_buf = Box::new([0u8; META_SIZE]);
-        CompressState { in_buf_size: 0, out_buf_size: 0, meta_buf_size: 0, in_buf, out_buf, meta_buf }
+impl pipeline::WorkItem<CompressWorkerData> for WorkItemState {
+    fn new() -> WorkItemState {
+        new_work_item_state()
     }
 
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String> {
@@ -292,6 +296,69 @@ fn decompress_file(in_filename: String, out_filename: String) -> io::Result<()> 
     Ok(())
 }
 
+struct DecompressWorkerData {
+    freq_buf: Box<[FreqEntry; 256]>,
+}
+
+impl pipeline::WorkerData for DecompressWorkerData {
+    fn new() -> DecompressWorkerData {
+        let freq_buf = Box::new([FreqEntry{val: 0, count: 0}; 256]);
+        DecompressWorkerData { freq_buf }
+    }
+}
+
+impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
+    fn new() -> WorkItemState {
+        new_work_item_state()
+    }
+
+    // The issue here is that the reader needs some aux reusable memory for metadata.
+    // We could generalize, I guess.
+
+    fn produce(&mut self, input: &mut fs::File) -> Result<bool, String> {
+        match input.read(self.in_buf.as_mut_slice()) {
+            Ok(bytes_read) => {
+                if bytes_read == 0 {
+                    return Ok(false)
+                }
+                self.in_buf_size = bytes_read;
+                return Ok(true)
+            }
+            Err(e) => {
+                return Err(format!("{}", e))
+            }
+        }
+    }
+
+    fn work(&mut self, extra: &mut CompressWorkerData) {
+        let input = &self.in_buf.as_slice()[0..self.in_buf_size];
+        (self.meta_buf_size, self.out_buf_size) =
+            encode_block(input, 
+                         extra.freq_buf.as_mut_slice(),
+                         extra.dict.as_mut_slice(),
+                         self.meta_buf.as_mut_slice(),
+                         self.out_buf.as_mut_slice());
+    }
+
+    fn consume(&mut self, output: &mut fs::File) -> Result<(), String> {
+        let meta_data = &self.meta_buf[..self.meta_buf_size];
+        match output.write(meta_data) {
+            Err(e) => { return Err(format!("{}", e)) }
+            _ => {}
+        }
+
+        let out_data = if self.out_buf_size == 0 { 
+            &self.in_buf[..self.in_buf_size]
+        } else {
+            &self.out_buf[..self.out_buf_size]
+        };
+        match output.write(out_data) {
+            Err(e) => { return Err(format!("{}", e)) }
+            Ok(_) => { return Ok(()) }
+        }
+    }
+}
+
 fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
     let mut out_buf = Box::new([0u8; 65536]);
@@ -355,6 +422,9 @@ fn decode_block<'a>(freq: &[FreqEntry], bytes_to_decode: usize, in_buf: &'a [u8]
     assert!(bytes_to_decode == in_buf.len());
     in_buf
 }
+
+// Bug: bytes_to_decode may overflow out_buf and may also cause us to read past the end of in_buf.
+// This is safe in Rust but we want a sane error, not a panic.
 
 fn decompress_block(tree: &Box<HuffTree>, bytes_to_decode: usize, in_buf: &[u8], out_buf: &mut [u8]) {
     let mut outptr = 0;
