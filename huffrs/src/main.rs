@@ -172,7 +172,7 @@ struct CompressWorkerData {
 }
 
 fn compress_stream(num_workers: usize, input: fs::File, output: fs::File) -> Result<(), String> {
-    pipeline::run::<CompressWorkerData, CompressState>(num_workers, num_workers*2, input, output)
+    pipeline::run::<CompressWorkerData, WorkItemState>(num_workers, num_workers*2, input, output)
 }
 
 impl pipeline::WorkerData for CompressWorkerData {
@@ -198,12 +198,18 @@ impl pipeline::WorkItem<CompressWorkerData> for WorkItemState {
                 return Ok(true)
             }
             Err(e) => {
+                // Signal invalid data with an in_buf_size of 0
+                self.in_buf_size = 0;
                 return Err(format!("{}", e))
             }
         }
     }
 
-    fn work(&mut self, extra: &mut CompressWorkerData) {
+    fn work(&mut self, extra: &mut CompressWorkerData) -> Result<(), String> {
+        if self.in_buf_size == 0 {
+            // Invalid data
+            return Ok(())
+        }
         let input = &self.in_buf.as_slice()[0..self.in_buf_size];
         (self.meta_buf_size, self.out_buf_size) =
             encode_block(input, 
@@ -211,9 +217,14 @@ impl pipeline::WorkItem<CompressWorkerData> for WorkItemState {
                          extra.dict.as_mut_slice(),
                          self.meta_buf.as_mut_slice(),
                          self.out_buf.as_mut_slice());
+        Ok(())
     }
 
     fn consume(&mut self, output: &mut fs::File) -> Result<(), String> {
+        if self.in_buf_size == 0 {
+            // Invalid data
+            return Ok(())
+        }
         let meta_data = &self.meta_buf[..self.meta_buf_size];
         match output.write(meta_data) {
             Err(e) => { return Err(format!("{}", e)) }
@@ -312,10 +323,10 @@ impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
         new_work_item_state()
     }
 
-    // The issue here is that the reader needs some aux reusable memory for metadata.
-    // We could generalize, I guess.
-
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String> {
+        Ok(false)
+
+/*
         match input.read(self.in_buf.as_mut_slice()) {
             Ok(bytes_read) => {
                 if bytes_read == 0 {
@@ -328,9 +339,12 @@ impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
                 return Err(format!("{}", e))
             }
         }
+        */
     }
 
-    fn work(&mut self, extra: &mut CompressWorkerData) {
+    fn work(&mut self, extra: &mut DecompressWorkerData) -> Result<(), String> {
+        Ok(())
+        /*
         let input = &self.in_buf.as_slice()[0..self.in_buf_size];
         (self.meta_buf_size, self.out_buf_size) =
             encode_block(input, 
@@ -338,9 +352,12 @@ impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
                          extra.dict.as_mut_slice(),
                          self.meta_buf.as_mut_slice(),
                          self.out_buf.as_mut_slice());
+                         */
     }
 
     fn consume(&mut self, output: &mut fs::File) -> Result<(), String> {
+        Ok(())
+        /*
         let meta_data = &self.meta_buf[..self.meta_buf_size];
         match output.write(meta_data) {
             Err(e) => { return Err(format!("{}", e)) }
@@ -356,6 +373,7 @@ impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
             Err(e) => { return Err(format!("{}", e)) }
             Ok(_) => { return Ok(()) }
         }
+        */
     }
 }
 

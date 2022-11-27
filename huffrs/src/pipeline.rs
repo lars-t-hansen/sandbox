@@ -24,7 +24,7 @@ pub trait WorkItem<Aux: WorkerData>: Send {
 
     // produce returns Ok(true) for work obtained, Ok(false) for orderly end of input
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String>;
-    fn work(&mut self, aux: &mut Aux);
+    fn work(&mut self, aux: &mut Aux) -> Result<(), String>;
     fn consume(&mut self, output: &mut fs::File) -> Result<(), String>;
 }
 
@@ -86,7 +86,7 @@ pub fn run<Aux: WorkerData, Work: WorkItem<Aux>>(
         for _ in 0..worker_threads.capacity() {
             let available_r = available_r.clone();
             let ready_s = ready_s.clone();
-            worker_threads.push(s.spawn(|| worker_loop(available_r, ready_s)));
+            worker_threads.push(s.spawn(|| worker_loop(&error_flag, available_r, ready_s)));
         }
         // These are dead so drop them, to allow the closing of channels to trigger
         // shutdown as described below.
@@ -143,6 +143,7 @@ fn producer_loop<Aux: WorkerData, Work: WorkItem<Aux>>(
 }
 
 fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(
+    error_flag: &AtomicBool,
     available: channel::Receiver<Item<Work>>, 
     ready: channel::Sender<Item<Work>>)
 {
@@ -156,7 +157,14 @@ fn worker_loop<Aux: WorkerData, Work: WorkItem<Aux>>(
     loop {
         match available.recv() {
             Ok(mut b) => {
-                b.it.work(&mut aux);
+                if !error_flag.load(atomic::Ordering::Relaxed) {
+                    match b.it.work(&mut aux) {
+                        Err(_) => { 
+                            error_flag.store(true, atomic::Ordering::Relaxed);
+                        }
+                        Ok(_) => {}
+                    }
+                }
                 ready.send(b).unwrap();
             }
             Err(_) => { break }
