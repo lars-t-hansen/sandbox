@@ -1,0 +1,13 @@
+name = "heap_test"
+description = "Shiny new project"
+version = "0.1.0-dev"
+
+authors = ["Lars T Hansen"]
+maintainers = ["Lars T Hansen <lars.thomas.hansen@knowit.no>"]
+maintainers-logins = ["lars-t-hansen"]
+
+executables = ["heap_test"]
+[[depends-on]]
+heap = "~0.1.0-dev"
+[[pins]]
+heap = { path='..' }
