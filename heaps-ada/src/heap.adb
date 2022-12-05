@@ -1,5 +1,7 @@
 --  -*- indent-tabs-mode: nil -*-
 
+with Ada.Containers.Vectors;
+
 package body Heap is
 
    procedure Swap (h : in out T; x, y : Natural) is
@@ -53,10 +55,12 @@ package body Heap is
    end Heapify;
 
    procedure Insert (h : in out T; x : V) is
+      use Ada.Containers;
       i : Natural;
    begin
-      if h.Length = h.Items'Length then
-         raise Heap_Full;
+      if h.Length = Natural(h.Items.Length) then
+         h.Items.Reserve_Capacity (if h.Items.Capacity = 0 then 20 else 2 * h.Items.Capacity);
+         h.Items.Set_Length (h.Items.Capacity);
       end if;
       h.Length := h.Length + 1;
       h.Items (h.Length - 1) := x;

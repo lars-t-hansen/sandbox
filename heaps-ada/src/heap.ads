@@ -1,3 +1,7 @@
+-- This is sort of silly, it reimplements Ada.Containers.Unbounded_Priority_Queues.
+
+with Ada.Containers.Vectors;
+
 generic
 
    type V is private;
@@ -26,13 +30,11 @@ package Heap is
    function Length (h : T) return Natural;
 
 private
-
-   --  TODO: Heap has limited length.  At a minimum its range could be a parameter.
-   type A is array (0 .. 50) of V;
+   package ACV is new Ada.Containers.Vectors (Natural, V);
 
    type T is limited record
       Length  : Natural := 0;
-      Items   : A;
+      Items   : ACV.Vector := ACV.Empty_Vector;
    end record;
 
 end Heap;
