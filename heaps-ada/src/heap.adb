@@ -37,11 +37,11 @@ package body Heap is
       loop
          greatest := loc;
          l := Left (loc);
-         if l < h.Length and then h.Greater(h.Items (l), h.Items (greatest)) then
+         if l < h.Length and then h.Items (l) > h.Items (greatest) then
             greatest := l;
          end if;
          r := Right (loc);
-         if r < h.Length and then h.Greater(h.Items (r), h.Items (greatest)) then
+         if r < h.Length and then h.Items (r) > h.Items (greatest) then
             greatest := r;
          end if;
          if greatest = loc then
@@ -61,7 +61,7 @@ package body Heap is
       h.Length := h.Length + 1;
       h.Items (h.Length - 1) := x;
       i := h.Length - 1;
-      while i > 0 and then h.Greater(h.Items (i), h.Items (Parent (i))) loop
+      while i > 0 and then h.Items (i) > h.Items (Parent (i)) loop
          Swap (h, i, Parent (i));
          i := Parent (i);
       end loop;
@@ -85,10 +85,5 @@ package body Heap is
       h.Length := h.Length - 1;
       Heapify (h, 0);
    end Extract_Max;
-
-   procedure Init (h : in out T; greater : GreaterFn) is
-   begin
-      h.Greater := greater;
-   end Init;
 
 end Heap;

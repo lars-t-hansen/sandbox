@@ -10,18 +10,36 @@ procedure Heap_Test is
    end record;
 
    type MyObjPtr is access MyObj;
-   package ObjHeap is new Heap (MyObj, MyObjPtr);
 
-   function ObjGreater (a, b : MyObjPtr) return Boolean is
+   function ">" (a, b : MyObjPtr) return Boolean is
    begin
       return a.weight > b.weight;
-   end ObjGreater;
+   end ">";
+
+   package ObjHeap is new Heap (MyObjPtr);
 
    hh : ObjHeap.T;
    xx : MyObjPtr;
 
+   package IntHeap is new Heap (Integer);
+
+   h : IntHeap.T;
+   x : Integer;
+
 begin
-   ObjHeap.Init (hh, ObjGreater'Access);
+   IntHeap.Insert (h, 1);
+   IntHeap.Insert (h, 2);
+   IntHeap.Insert (h, 16);
+   IntHeap.Insert (h, 8);
+   IntHeap.Extract_Max (h, x);
+   IIO.Put (x);
+   IntHeap.Extract_Max (h, x);
+   IIO.Put (x);
+   IntHeap.Extract_Max (h, x);
+   IIO.Put (x);
+   IntHeap.Extract_Max (h, x);
+   IIO.Put (x);
+
    ObjHeap.Insert (hh, new MyObj'(1, 10));
    ObjHeap.Insert (hh, new MyObj'(2, 20));
    ObjHeap.Insert (hh, new MyObj'(16, 160));

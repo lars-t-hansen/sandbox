@@ -1,23 +1,14 @@
 generic
 
-   --  V is the type of values stored in the heap
-   --
-   --  Ada, like Go (and Java), does not seem to like to abstract over all types,
-   --  it needs to know the type's basic structure.  Here, limit ourselves to
-   --  access types, it's good enough.
+   type V is private;
 
-   type R is limited private;
-   type V is access R;
+   with function ">" (Left, Right : V) return Boolean is <>;
 
 package Heap is
-
-   type GreaterFn is access function (a, b: in V) return Boolean;
 
    type T is limited private;
 
    Heap_Empty, Heap_Full : exception;
-
-   procedure Init (h : in out T; greater : GreaterFn);
 
    --  Insert x into the heap.
    --  Raises Heap_Full if the heap is full.
@@ -40,7 +31,6 @@ private
    type A is array (0 .. 50) of V;
 
    type T is limited record
-      Greater : GreaterFn;
       Length  : Natural := 0;
       Items   : A;
    end record;
