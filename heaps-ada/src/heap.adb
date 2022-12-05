@@ -1,8 +1,9 @@
 --  -*- indent-tabs-mode: nil -*-
+
 package body Heap is
 
    procedure Swap (h : in out T; x, y : Natural) is
-      tmp : Integer;
+      tmp : V;
    begin
       tmp := h.Items (x);
       h.Items (x) := h.Items (y);
@@ -36,11 +37,11 @@ package body Heap is
       loop
          greatest := loc;
          l := Left (loc);
-         if l < h.Length and then h.Items (l) > h.Items (greatest) then
+         if l < h.Length and then h.Greater(h.Items (l), h.Items (greatest)) then
             greatest := l;
          end if;
          r := Right (loc);
-         if r < h.Length and then h.Items (r) > h.Items (greatest) then
+         if r < h.Length and then h.Greater(h.Items (r), h.Items (greatest)) then
             greatest := r;
          end if;
          if greatest = loc then
@@ -51,7 +52,7 @@ package body Heap is
       end loop;
    end Heapify;
 
-   procedure Insert (h : in out T; x : Integer) is
+   procedure Insert (h : in out T; x : V) is
       i : Natural;
    begin
       if h.Length = h.Items'Length then
@@ -60,13 +61,13 @@ package body Heap is
       h.Length := h.Length + 1;
       h.Items (h.Length - 1) := x;
       i := h.Length - 1;
-      while i > 0 and then h.Items (i) > h.Items (Parent (i)) loop
+      while i > 0 and then h.Greater(h.Items (i), h.Items (Parent (i))) loop
          Swap (h, i, Parent (i));
          i := Parent (i);
       end loop;
    end Insert;
 
-   procedure Peek_Max (h : T; elt : out Integer) is
+   procedure Peek_Max (h : T; elt : out V) is
    begin
       if h.Length = 0 then
          raise Heap_Empty;
@@ -74,7 +75,7 @@ package body Heap is
       elt := h.Items (0);
    end Peek_Max;
 
-   procedure Extract_Max (h : in out T; elt : out Integer) is
+   procedure Extract_Max (h : in out T; elt : out V) is
    begin
       if h.Length = 0 then
          raise Heap_Empty;
@@ -84,5 +85,10 @@ package body Heap is
       h.Length := h.Length - 1;
       Heapify (h, 0);
    end Extract_Max;
+
+   procedure Init (h : in out T; greater : GreaterFn) is
+   begin
+      h.Greater := greater;
+   end Init;
 
 end Heap;
