@@ -40,6 +40,7 @@ with Ada.Containers.Generic_Constrained_Array_Sort;
 with Ada.Sequential_IO;
 with Ada.Text_IO;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
+with Ada.Unchecked_Deallocation;
 
 procedure Huff_Ada is
 
@@ -118,6 +119,9 @@ procedure Huff_Ada is
    --
    --  In the Huff_Node, either Left and Right are both null, in which case
    --  Ch is valid, or they are both not null, in which case Ch is junk.
+   --
+   --  This will not raise any exceptions.  The tree will need to be freed
+   --  once it's no longer needed.
 
    type Huff_Node;
    type Huff_Node_Ptr is access Huff_Node;
@@ -177,6 +181,16 @@ procedure Huff_Ada is
       end;
    end Build_Huffman_Tree;
 
+   procedure Free_Huff_Node is new Ada.Unchecked_Deallocation (Huff_Node, Huff_Node_Ptr);
+
+   procedure Free_Huffman_Tree (Tree : in out Huff_Node_Ptr) is
+   begin
+      if Tree.Left /= null then
+         Free_Huffman_Tree (Tree.Left);
+         Free_Huffman_Tree (Tree.Right);
+      end if;
+      Free_Huff_Node (Tree);
+   end Free_Huffman_Tree;
 
    --  Dictionary construction.
    --
@@ -300,29 +314,34 @@ procedure Huff_Ada is
    procedure Compress_Block (Input : Buffer; Output : out Buffer; Meta : out MetaBuffer) is
       Freqs : Freq_Table;
       Dict  : Dictionary;
-      Tree  : Huff_Node_Ptr;
+      Tree  : Huff_Node_Ptr := null;
 
    begin
-      Compute_Frequencies (Input, Freqs);
-      Build_Huffman_Tree (Freqs, Tree);
-      Build_Dictionary (Tree, Dict);
-      Encode_Block (Input, Output, Dict);
-      Meta.Length := 0;
-      Put_16 (Meta, Unsigned_16 (Freqs.Length));
-      for i in 0 .. Freqs.Length-1 loop
-         Put_8 (Meta, Freqs.It (Freq_Array_Range (i)).Ch);
-         Put_32 (Meta, Unsigned_32 (Freqs.It (Freq_Array_Range (i)).Count));
-      end loop;
-      Put_32 (Meta, Unsigned_32 (Input.Length));
-      Put_32 (Meta, Unsigned_32 (Output.Length));
+      begin
+         Compute_Frequencies (Input, Freqs);
+         Build_Huffman_Tree (Freqs, Tree);
+         Build_Dictionary (Tree, Dict);
+         Encode_Block (Input, Output, Dict);
 
-   exception
+         Meta.Length := 0;
+         Put_16 (Meta, Unsigned_16 (Freqs.Length));
+         for i in 0 .. Freqs.Length-1 loop
+            Put_8 (Meta, Freqs.It (Freq_Array_Range (i)).Ch);
+            Put_32 (Meta, Unsigned_32 (Freqs.It (Freq_Array_Range (i)).Count));
+         end loop;
+         Put_32 (Meta, Unsigned_32 (Input.Length));
+         Put_32 (Meta, Unsigned_32 (Output.Length));
+
+      exception
       when Cant_Encode =>
          Meta.Length := 0;
          Output.It (0 .. Input.Length-1) := Input.It (0 .. Input.Length-1);
          Output.Length := Input.Length;
          Put_16 (Meta, 0);
          Put_32 (Meta, Unsigned_32 (Output.Length));
+
+      end;
+      Free_Huffman_Tree (Tree);
    end Compress_Block;
 
 
@@ -342,6 +361,7 @@ procedure Huff_Ada is
          --  TODO: This is completely tragic.  Surely there has got to be a better way than
          --  byte-at-a-time?  It looks like stream I/O might work, after a fashion, but
          --  not yet sure how to do that.
+         Input.Length := Input.It'Last;
          for i in 0 .. Input.It'Last loop
             if FIO.End_Of_File(Input_File) then
                Input.Length := i;
