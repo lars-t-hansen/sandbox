@@ -82,7 +82,9 @@ procedure Huff_Ada is
       It     : Freq_Array;
    end record;
  
-   procedure Compute_Frequencies(Input : Buffer; Freqs : out Freq_Table) is
+   procedure Compute_Frequencies(Input : Buffer; Freqs : out Freq_Table)
+     with Pre => Input.Length > 0
+   is
 
       function "<" (a, b: Freq_Item) return Boolean is
       begin
@@ -93,7 +95,6 @@ procedure Huff_Ada is
          Generic_Constrained_Array_Sort (Freq_Array_Range, Freq_Item, Freq_Array);
 
    begin
-      pragma Assert (Input.Length > 0);
       for i in Freq_Array_Range loop
          Freqs.It (i).Ch := Unsigned_8 (i);
          Freqs.It (i).Count := 0;
@@ -142,7 +143,9 @@ procedure Huff_Ada is
              (Left.Weight = Right.Weight and then Left.Serial < Right.Serial);
    end ">";
 
-   procedure Build_Huffman_Tree(Freqs : Freq_Table; Tree : out Huff_Node_Ptr) is
+   procedure Build_Huffman_Tree(Freqs : Freq_Table; Tree : out Huff_Node_Ptr)
+      with Pre => Freqs.Length > 0
+   is
 
      package HuffHeap is new Heap (Huff_Item);
      
@@ -150,7 +153,6 @@ procedure Huff_Ada is
      Serial : Natural := 0;
 
    begin
-      pragma Assert (Freqs.Length > 0);
       for i in 0 .. Freqs.Length - 1 loop
          declare
             ix : constant Freq_Array_Range := Freq_Array_Range (i);
@@ -183,8 +185,9 @@ procedure Huff_Ada is
 
    procedure Free_Huff_Node is new Ada.Unchecked_Deallocation (Huff_Node, Huff_Node_Ptr);
 
-   procedure Free_Huffman_Tree (Tree : in out Huff_Node_Ptr) is
-   begin
+   procedure Free_Huffman_Tree (Tree : in out Huff_Node_Ptr)
+      with Pre => (Tree.Left = null) = (Tree.Right = null)
+   is begin
       if Tree.Left /= null then
          Free_Huffman_Tree (Tree.Left);
          Free_Huffman_Tree (Tree.Right);
@@ -211,10 +214,10 @@ procedure Huff_Ada is
 
    procedure Build_Dictionary(Tree : Huff_Node_Ptr; Dict : out Dictionary) is
 
-      procedure Descend (Tree : Huff_Node_Ptr; Bits : Unsigned_64; Width : Natural) is
-      begin
+      procedure Descend (Tree : Huff_Node_Ptr; Bits : Unsigned_64; Width : Natural)
+         with Pre => (Tree.Left = null) = (Tree.Right = null)
+      is begin
          if Tree.Left = null then
-            pragma Assert (Tree.Right = null);
             --  This limit ensures that a 64-bit window will never overflow
             --  during encoding.
             if Width > 56 then
@@ -311,7 +314,9 @@ procedure Huff_Ada is
    -- When Compress_Block returns, the Output and the Metadata together
    -- hold the compressed representation.  No exceptions are raised.
 
-   procedure Compress_Block (Input : Buffer; Output : out Buffer; Meta : out MetaBuffer) is
+   procedure Compress_Block (Input : Buffer; Output : out Buffer; Meta : out MetaBuffer)
+      with Pre => Input.Length > 0
+   is
       Freqs : Freq_Table;
       Dict  : Dictionary;
       Tree  : Huff_Node_Ptr := null;
@@ -351,6 +356,9 @@ procedure Huff_Ada is
       package FIO is new Ada.Sequential_IO (Unsigned_8);
       Input_File : FIO.File_Type;
       Output_File : FIO.File_Type;
+      --  TODO: Stack-allocated buffers are OK for a single-threaded demo but
+      --  when there are many of them for a properly multithreaded program
+      --  we'll want something else.
       Input, Output : Buffer;
       Meta : MetaBuffer;
 
