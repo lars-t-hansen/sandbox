@@ -340,7 +340,8 @@ procedure Huff_Ada is
       FIO.Create(Output_File, FIO.Out_File, Output_Name);
       while not FIO.End_Of_File(Input_File) loop
          --  TODO: This is completely tragic.  Surely there has got to be a better way than
-         --  byte-at-a-time?
+         --  byte-at-a-time?  It looks like stream I/O might work, after a fashion, but
+         --  not yet sure how to do that.
          for i in 0 .. Input.It'Last loop
             if FIO.End_Of_File(Input_File) then
                Input.Length := i;
