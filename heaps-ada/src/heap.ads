@@ -1,4 +1,3 @@
--- This is sort of silly, it reimplements Ada.Containers.Unbounded_Priority_Queues.
 
 with Ada.Containers.Vectors;
 
