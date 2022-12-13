@@ -1,9 +1,11 @@
+--  -*- indent-tabs-mode: nil -*-
 
-with Ada.Containers.Vectors;
+--  Bounded single-threaded priority queue.
 
 generic
 
    type V is private;
+   type QueueRange is range <>;
 
    with function ">" (Left, Right : V) return Boolean is <>;
 
@@ -29,11 +31,12 @@ package Heap is
    function Length (h : T) return Natural;
 
 private
-   package ACV is new Ada.Containers.Vectors (Natural, V);
+
+   type A is array (QueueRange) of V;
 
    type T is limited record
       Length  : Natural := 0;
-      Items   : ACV.Vector := ACV.Empty_Vector;
+      Items   : A;
    end record;
 
 end Heap;
