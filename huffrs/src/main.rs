@@ -149,11 +149,11 @@ fn compress_file(in_filename: String, out_filename: String) -> io::Result<()> {
 
 struct WorkItemState {
     in_buf_size: usize,             // reader sets this
-    out_buf_size: usize,            // encoder sets this, zero if no encoded data (copy input)
-    meta_buf_size: usize,           // encoder sets this
+    out_buf_size: usize,            // encoder or decoder sets this, zero if no encoded data (copy input)
+    meta_buf_size: usize,           // reader or encoder sets this
     in_buf: Box<[u8; 65536]>,       // reader updates this
-    out_buf: Box<[u8; 65536]>,      // encoder updates this
-    meta_buf: Box<[u8; META_SIZE]>, // encoder updates this
+    out_buf: Box<[u8; 65536]>,      // encoder or decoder updates this
+    meta_buf: Box<[u8; META_SIZE]>, // reader or encoder updates this
 }
 
 fn new_work_item_state() -> WorkItemState {
@@ -189,6 +189,7 @@ impl pipeline::WorkItem<CompressWorkerData> for WorkItemState {
     }
 
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String> {
+        // TODO: map_err
         match input.read(self.in_buf.as_mut_slice()) {
             Ok(bytes_read) => {
                 if bytes_read == 0 {
@@ -324,26 +325,42 @@ impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
     }
 
     fn produce(&mut self, input: &mut fs::File) -> Result<bool, String> {
-        Ok(false)
-
-/*
-        match input.read(self.in_buf.as_mut_slice()) {
-            Ok(bytes_read) => {
-                if bytes_read == 0 {
-                    return Ok(false)
-                }
-                self.in_buf_size = bytes_read;
-                return Ok(true)
-            }
-            Err(e) => {
-                return Err(format!("{}", e))
-            }
+        let mut got_metadata;
+        match read_bytes(input, 0, 2, self.meta_buf.as_mut_slice()) {
+            Ok(b) => { got_metadata = b; }
+            Err(e) => { return Err(format!("{}", e))}
         }
-        */
+        if !got_metadata {
+            return Ok(false);
+        }
+        let (_, item) = get_u16(self.meta_buf.as_slice(), 0);
+        let freq_len = item as usize;
+        let metabytes = if freq_len > 0 { 5*freq_len + 8 } else { 4 };
+        self.meta_buf_size = 2+metabytes;
+        match read_bytes(input, 2, metabytes, self.meta_buf.as_mut_slice()) {
+            Ok(b) => { got_metadata = b; }
+            Err(e) => { return Err(format!("{}", e))}
+        }
+        if !got_metadata {
+            return Err("Bad metadata".to_string());
+        }
+        let bytes_encoded = decode_bytes_encoded(&self.meta_buf.as_slice()[2..2+metabytes]);
+        self.in_buf_size = bytes_encoded as usize;
+        let got_data;
+        match read_bytes(input, 0, self.in_buf_size, self.in_buf.as_mut_slice()) {
+            Ok(b) => { got_data = b; }
+            Err(e) => { return Err(format!("{}", e))}
+        }
+        if !got_data {
+            return Err("Bad data".to_string());
+        }
+        Ok(true)
     }
 
     fn work(&mut self, extra: &mut DecompressWorkerData) -> Result<(), String> {
         Ok(())
+//        let (freq, bytes_encoded, bytes_to_decode) = decode_metadata(&meta_buf.as_slice()[2..], freq_len, freq_buf.as_mut_slice());
+
         /*
         let input = &self.in_buf.as_slice()[0..self.in_buf_size];
         (self.meta_buf_size, self.out_buf_size) =
@@ -377,6 +394,7 @@ impl pipeline::WorkItem<DecompressWorkerData> for WorkItemState {
     }
 }
 
+// This is dead now
 fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> io::Result<()> {
     let mut in_buf = Box::new([0u8; 65536]);
     let mut out_buf = Box::new([0u8; 65536]);
@@ -403,6 +421,11 @@ fn decompress_stream(input: &mut dyn io::Read,  output: &mut dyn io::Write) -> i
         write_bytes(output, out_data)?;
     }
     Ok(())
+}
+
+fn decode_bytes_encoded(metadata: &[u8]) -> usize {
+    let (_, item) = get_u32(metadata, metadata.len()-4);
+    item as usize
 }
 
 // This will return a freq of length zero if there is no decoding to be done.
