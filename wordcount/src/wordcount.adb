@@ -62,21 +62,34 @@ procedure Wordcount is
 
 begin
    if Argument_Count >= 1 then
-      Open (Named_File, In_File, Argument (1));
+      begin
+         Open (Named_File, In_File, Argument (1));
+      exception
+         -- TODO: Use_Error
+         when Name_Error =>
+            Put_Line ("No such file " & Argument (1));
+            --  TODO: Set exit code here before return, or somehow throw an
+            --  Unwind condition that we catch later to properly exit.
+            return;
+      end;
       Has_File := True;
    end if;
+   --  TODO: Handle exceptions from other I/O operations.
+   --  It feels vague to me under which circumstances the various exceptions are thrown.
+   --  I'm also vague on how unwinding works.  It's not very sensible that Named_File
+   --  is not automatically closed, but that's the implication of what I've read.
    while not At_Eof loop
       declare
-         s : constant String := Read_Line;
+         Line : constant String := Read_Line;
          State : State_Type := Outside;
       begin
          Lines := Lines + 1;
-         Chars := Chars + s'Length + 1;
-         for j in s'Range loop
-            if State = Outside and then Is_Inside_Char (s (j)) then
+         Chars := Chars + Line'Length + 1;
+         for J in Line'Range loop
+            if State = Outside and then Is_Inside_Char (Line (J)) then
                Words := Words + 1;
                State := Inside;
-            elsif State = Inside and then not Is_Inside_Char (s (j)) then
+            elsif State = Inside and then not Is_Inside_Char (Line (J)) then
                State := Outside;
             end if;
          end loop;
