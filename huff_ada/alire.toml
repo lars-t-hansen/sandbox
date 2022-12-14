@@ -1,5 +1,5 @@
 name = "huff_ada"
-description = "Shiny new project"
+description = "Huffman encoder"
 version = "0.1.0-dev"
 
 authors = ["Lars T Hansen"]
@@ -7,7 +7,7 @@ maintainers = ["Lars T Hansen <lars.thomas.hansen@knowit.no>"]
 maintainers-logins = ["lars-t-hansen"]
 
 executables = ["huff_ada"]
-[[depends-on]]
-heap = "~0.1.0-dev"
-[[pins]]
-heap = { path='../heaps-ada' }
+
+[build-switches]
+"*".runtime_checks = ["-gnata"]
+"*".style_checks = ["-gnatya", "-gnatyA", "-gnatyB", "-gnaty-d", "-gnatye", "-gnatyf", "-gnatyh", "-gnatyi", "-gnatyI", "-gnatyk", "-gnatyl", "-gnatyn", "-gnatyO", "-gnatyp", "-gnatyr", "-gnatyS", "-gnatyx"]

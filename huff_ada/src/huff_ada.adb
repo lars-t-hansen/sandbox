@@ -147,8 +147,8 @@ procedure Huff_Ada is
       with Pre => Freqs.Length > 0
    is
 
-     package HuffHeap is new Heap (Huff_Item);
-     
+     package HuffHeap is new Heap (Huff_Item, Freq_Array_Range);
+
      Priq : HuffHeap.T;
      Serial : Natural := 0;
 
@@ -369,7 +369,7 @@ procedure Huff_Ada is
          --  TODO: This is completely tragic.  Surely there has got to be a better way than
          --  byte-at-a-time?  It looks like stream I/O might work, after a fashion, but
          --  not yet sure how to do that.
-         Input.Length := Input.It'Last;
+         Input.Length := Input.It'Length;
          for i in 0 .. Input.It'Last loop
             if FIO.End_Of_File(Input_File) then
                Input.Length := i;
