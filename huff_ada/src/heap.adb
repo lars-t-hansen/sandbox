@@ -55,6 +55,9 @@ package body Heap is
    procedure Insert (h : in out T; x : V) is
       i : QueueRange;
    begin
+      --  FIXME: This used to have a test for overflow.  That was removed
+      --  when the representation was changed to use Vector.  Now that it
+      --  is back to being bounded, the test needs to come back.
       h.Length := h.Length + 1;
       h.Items (QueueRange(h.Length - 1)) := x;
       i := QueueRange (h.Length - 1);
