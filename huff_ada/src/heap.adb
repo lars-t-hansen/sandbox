@@ -53,17 +53,17 @@ package body Heap is
    end Heapify;
 
    procedure Insert (h : in out T; x : V) is
-      i : QueueRange;
+      loc : QueueRange;
    begin
-      --  FIXME: This used to have a test for overflow.  That was removed
-      --  when the representation was changed to use Vector.  Now that it
-      --  is back to being bounded, the test needs to come back.
+      if h.Length = h.Items'Length then
+         raise Heap_Full;
+      end if;
+      loc := QueueRange (h.Length);
       h.Length := h.Length + 1;
-      h.Items (QueueRange(h.Length - 1)) := x;
-      i := QueueRange (h.Length - 1);
-      while i > 0 and then h.Items (i) > h.Items (Parent (i)) loop
-         Swap (h, i, Parent (i));
-         i := Parent (i);
+      h.Items (loc) := x;
+      while loc > 0 and then h.Items (loc) > h.Items (Parent (loc)) loop
+         Swap (h, loc, Parent (loc));
+         loc := Parent (loc);
       end loop;
    end Insert;
 

@@ -5,6 +5,10 @@
 generic
 
    type V is private;
+   --  FIXME: This is wrong, we're not interested in the range here.
+   --  We're interested in the max size.  The lower limit of the range
+   --  is always going to have to be zero, and this is not a constraint
+   --  the client should worry about.
    type QueueRange is range <>;
 
    with function ">" (Left, Right : V) return Boolean is <>;
