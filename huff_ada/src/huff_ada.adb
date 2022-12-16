@@ -147,7 +147,7 @@ procedure Huff_Ada is
       with Pre => Freqs.Length > 0
    is
 
-     package HuffHeap is new Heap (Huff_Item, Freq_Array_Range);
+     package HuffHeap is new Heap (Huff_Item, Natural(Freq_Array_Length'Last));
 
      Priq : HuffHeap.T;
      Serial : Natural := 0;

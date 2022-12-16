@@ -2,7 +2,7 @@
 
 package body Heap is
 
-   procedure Swap (h : in out T; x, y : QueueRange) is
+   procedure Swap (h : in out T; x, y : Natural) is
       tmp : V;
    begin
       tmp := h.Items (x);
@@ -15,33 +15,33 @@ package body Heap is
       return h.Length;
    end Length;
 
-   function Parent (loc : QueueRange) return QueueRange is
+   function Parent (loc : Natural) return Natural is
    begin
-      return QueueRange ((Natural(loc) - 1) / 2);
+      return (loc - 1) / 2;
    end Parent;
 
-   function Left (loc : QueueRange) return QueueRange is
+   function Left (loc : Natural) return Natural is
    begin
-      return QueueRange ((Natural(loc) * 2) + 1);
+      return (loc * 2) + 1;
    end Left;
 
-   function Right (loc : QueueRange) return QueueRange is
+   function Right (loc : Natural) return Natural is
    begin
-      return QueueRange ((Natural(loc) + 1) * 2);
+      return (loc + 1) * 2;
    end Right;
 
-   procedure Heapify (h : in out T; loc_param : QueueRange) is
-      greatest, l, r, loc : QueueRange;
+   procedure Heapify (h : in out T; loc_param : Natural) is
+      greatest, l, r, loc : Natural;
    begin
       loc := loc_param;
       loop
          greatest := loc;
          l := Left (loc);
-         if Natural(l) < h.Length and then h.Items (l) > h.Items (greatest) then
+         if l < h.Length and then h.Items (l) > h.Items (greatest) then
             greatest := l;
          end if;
          r := Right (loc);
-         if Natural(r) < h.Length and then h.Items (r) > h.Items (greatest) then
+         if r < h.Length and then h.Items (r) > h.Items (greatest) then
             greatest := r;
          end if;
          if greatest = loc then
@@ -53,12 +53,12 @@ package body Heap is
    end Heapify;
 
    procedure Insert (h : in out T; x : V) is
-      loc : QueueRange;
+      loc : Natural;
    begin
       if h.Length = h.Items'Length then
          raise Heap_Full;
       end if;
-      loc := QueueRange (h.Length);
+      loc := h.Length;
       h.Length := h.Length + 1;
       h.Items (loc) := x;
       while loc > 0 and then h.Items (loc) > h.Items (Parent (loc)) loop
@@ -81,7 +81,7 @@ package body Heap is
          raise Heap_Empty;
       end if;
       elt := h.Items (0);
-      h.Items (0) := h.Items (QueueRange (h.Length - 1));
+      h.Items (0) := h.Items (h.Length - 1);
       h.Length := h.Length - 1;
       Heapify (h, 0);
    end Extract_Max;
