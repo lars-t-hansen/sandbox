@@ -1,0 +1,271 @@
+import io
+import sys
+
+# Usage: huffer input-name output-name
+# FIXME: Improve that
+
+def main():
+    compress_file(sys.argv[1], sys.argv[2])
+
+def compress_file(input_name, output_name):
+    # Preallocate storage to avoid reallocating all of it needlessly
+    input_buf = bytearray(65536)
+    output_buf = bytearray(65536)
+    meta_buf = bytearray(2+(5*256)+2*4)
+    freq_buf = [FreqItem(b) for b in range(0,256)]
+    dict_buf = [DictItem(0, 0) for b in range (0, 256)]
+
+    infile = io.open(input_name, 'rb')
+    outfile = io.open(output_name, 'wb')
+    while True:
+        # TODO: This is correct, though for ease of testing it would be best
+        # always to fill the buffer if possible.
+        bytes_read = infile.readinto(input_buf)
+        if bytes_read == 0:
+            break
+        (output, output_len, meta, meta_len) = \
+            compress_block(freq_buf,
+                           dict_buf,
+                           input_buf,
+                           bytes_read,
+                           output_buf,
+                           meta_buf)
+        # FIXME: This sucks, because it copies the buffer - pointlessly.
+        # FIXME: It also sucks because it can write fewer bytes than we want to write.
+        outfile.write(meta[:meta_len])
+        outfile.write(output[:output_len])
+    infile.close()
+    outfile.close()
+
+# Returns (output, output_len, meta, meta_len) always
+
+def compress_block(freq_buf, dict_buf, input, input_len, output, meta):
+    meta_loc = 0
+
+    def put8(b):
+        nonlocal meta_loc
+        meta[meta_loc] = b & 255
+        meta_loc = meta_loc + 1
+
+    def put16(b):
+        nonlocal meta_loc
+        meta[meta_loc] = b & 255
+        meta[meta_loc+1] = (b >> 8) & 255
+        meta_loc = meta_loc + 2
+
+    def put32(b):
+        nonlocal meta_loc
+        meta[meta_loc] = b & 255
+        meta[meta_loc+1] = (b >> 8) & 255
+        meta[meta_loc+2] = (b >> 16) & 255
+        meta[meta_loc+3] = (b >> 24) & 255
+        meta_loc = meta_loc + 4
+
+    freq_len = compute_frequencies(input, input_len, freq_buf)
+    tree = build_huffman_tree(freq_buf, freq_len)
+    if build_dictionary(tree, dict_buf) != None:
+        output_len = encode_block(input, input_len, output, dict_buf)
+        if output_len != None:
+            put16(freq_len)
+            for i in range (0,freq_len):
+                put8(freq_buf[i].byte)
+                put32(freq_buf[i].count)
+            put32(input_len)
+            put32(output_len)
+            return (output, output_len, meta, meta_loc)
+    print("Could not build dictionary or encode")
+    put16(0)
+    put32(input_len)
+    return (input, input_len, meta, meta_loc)
+
+# Encode a block.
+#
+# input is a bytes or bytearray.  output is a bytearray.  dictionary is the encoding dictionary.
+#
+# Returns the length of the output block, or None if the encoding failed (output length exceeded)
+
+def encode_block(input, inputlen, output, dictionary):
+    inptr = 0
+    outptr = 0
+    bits = 0
+    width = 0
+    while inptr < inputlen:
+        dix = dictionary[input[inptr]]
+        inptr = inptr + 1
+        bits = bits | (dix.bits << width)
+        width = width + dix.width
+        while width >= 8:
+            if outptr == len(output):
+                print("Output buffer overflow")
+                return None
+            output[outptr] = bits & 255
+            outptr = outptr + 1
+            bits = bits >> 8
+            width = width - 8
+    if width > 0:
+        if outptr == len(output):
+            print("Output buffer overflow")
+            return None
+        output[outptr] = bits & 255
+        outptr = outptr + 1
+    return outptr
+
+
+# Build an encoding dictionary.  This is a table of length 265 where the entries are meaningful for
+# the bytes that appear in the tree.  Each dictionary node is an object with `bits` and `width`
+# fields.
+#
+# Input: the tree and a populated but otherwise garbage dictionary buffer (length 256)
+#
+# Output: the dictionary, or None if no encoding was found
+
+class DictItem:
+    def __init__(self, bits, width):
+        self.bits = bits
+        self.width = width
+
+    def __repr__(self):
+        return f"({self.bits} {self.width})"
+
+def build_dictionary(tree, dictionary):
+    def descend(t, bits, width):
+        if t.left == None:
+            if width > 56:
+                print("Too wide")
+                return False    # Can't encode
+            dictionary[t.byte].bits = bits
+            dictionary[t.byte].width = width
+            return True
+        return descend(t.left, bits, width + 1) and descend(t.right, (1 << width) | bits, width + 1)
+    
+    if not descend(tree, 0, 0):
+        print("Failed to build dictionary")
+        return None
+
+    return dictionary
+
+# Build a huffman tree.
+#
+# Input is a frequency table as produced by compute_frequencies.
+#
+# Returns a huffman-ordered binary tree.  Each node is a tuple (byte, left, right) where left and
+# right are None if this is a leaf node with the given byte value, otherwise left and right are both
+# non-None and the byte value is immaterial.
+
+class HuffNode:
+    def __init__(self, byte, left, right):
+        self.byte = byte
+        self.left = left
+        self.right = right
+
+    def __repr__(self):
+        return f"({self.byte} {self.left} {self.right})"
+
+def build_huffman_tree(freq, freq_len):
+
+    class PqNode:
+        def __init__(self, weight, serial, tree):
+            self.weight = weight
+            self.serial = serial
+            self.tree = tree
+
+    pq = Pq(lambda a, b: a.weight < b.weight or (a.weight == b.weight and a.serial < b.serial))
+    serial = 0
+    for i in range (0,freq_len):
+        it = freq[i]
+        pq.insert(PqNode(it.count, serial, HuffNode(it.byte, None, None)))
+        serial = serial + 1
+    while pq.length() > 1:
+        a = pq.extract_max()
+        b = pq.extract_max()
+        pq.insert(PqNode(a.weight + b.weight, serial, HuffNode(0, a.tree, b.tree)))
+        serial = serial + 1
+    return pq.extract_max().tree
+
+# Build table of character frequencies.
+#
+# Input is a bytearray or bytes and a buffer of length 256 of frequency items,
+# all garbage.
+#
+# Initializes the table, sorts it descending per spec, and returns the number
+# of nonzero entries (the effective length of the frequency table).
+
+class FreqItem:
+    def __init__(self, byte):
+        self.byte = byte
+        self.count = 0
+
+    def __repr__(self):
+        return f"({self.byte} {self.count})"
+
+def compute_frequencies(input, input_len, freq):
+    for b in range (0, 256):
+        it = freq[b]
+        it.byte = b
+        it.count = 0
+    for i in range (0, input_len):
+        b = input[i]
+        it = freq[b]
+        it.count = it.count + 1
+    # The sort is stable, so we need consider only the count.
+    freq.sort(key=lambda fi: -fi.count)
+    i = 256
+    while freq[i-1].count == 0:
+        i = i - 1
+    return i
+
+# Generic priority queue
+
+class Pq:
+    def __init__(self, greater):
+        self.greater = greater
+        self.it = []
+
+    def length(self):
+        return len(self.it)
+
+    def insert(self, node):
+        loc = len(self.it)
+        self.it.append(node)
+        while loc > 0 and self.greater(self.it[loc], self.it[Pq.parent(loc)]):
+            self.swap(loc, Pq.parent(loc))
+            loc = Pq.parent(loc)
+
+    def extract_max(self):
+        # TODO: Throw if empty, don't just crash as now
+        max = self.it[0]
+        self.it[0] = self.it[len(self.it)-1]
+        self.it = self.it[:len(self.it)-1]
+        if len(self.it) > 1:
+            self.heapify(0)
+        return max
+
+    # Private
+
+    def swap(self, a, b):
+        (self.it[a], self.it[b]) = (self.it[b], self.it[a])
+
+    def heapify(self, loc):
+        while True:
+            greatest = loc
+            l = Pq.left(loc)
+            if l < len(self.it) and self.greater(self.it[l], self.it[greatest]):
+                greatest = l
+            r = Pq.right(loc)
+            if r < len(self.it) and self.greater(self.it[r], self.it[greatest]):
+                greatest = r
+            if greatest == loc:
+                break
+            self.swap(loc, greatest)
+            loc = greatest
+
+    def parent(loc):
+        return (loc - 1) // 2;
+
+    def left(loc):
+        return (loc * 2) + 1;
+
+    def right(loc):
+        return (loc + 1) * 2;
+
+main()
