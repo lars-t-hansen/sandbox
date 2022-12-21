@@ -46,13 +46,13 @@ def compress_block(freq_buf, dict_buf, input, input_len, output, meta):
     def put8(b):
         nonlocal meta_loc
         meta[meta_loc] = b & 255
-        meta_loc = meta_loc + 1
+        meta_loc += 1
 
     def put16(b):
         nonlocal meta_loc
         meta[meta_loc] = b & 255
         meta[meta_loc+1] = (b >> 8) & 255
-        meta_loc = meta_loc + 2
+        meta_loc += 2
 
     def put32(b):
         nonlocal meta_loc
@@ -60,7 +60,7 @@ def compress_block(freq_buf, dict_buf, input, input_len, output, meta):
         meta[meta_loc+1] = (b >> 8) & 255
         meta[meta_loc+2] = (b >> 16) & 255
         meta[meta_loc+3] = (b >> 24) & 255
-        meta_loc = meta_loc + 4
+        meta_loc += 4
 
     freq_len = compute_frequencies(input, input_len, freq_buf)
     tree = build_huffman_tree(freq_buf, freq_len)
@@ -91,21 +91,21 @@ def encode_block(input, inputlen, output, dictionary):
     width = 0
     while inptr < inputlen:
         dix = dictionary[input[inptr]]
-        inptr = inptr + 1
+        inptr += 1
         bits = bits | (dix.bits << width)
         width = width + dix.width
         while width >= 8:
             if outptr == len(output):
                 return None
             output[outptr] = bits & 255
-            outptr = outptr + 1
-            bits = bits >> 8
-            width = width - 8
+            outptr += 1
+            bits >>= 8
+            width -= 8
     if width > 0:
         if outptr == len(output):
             return None
         output[outptr] = bits & 255
-        outptr = outptr + 1
+        outptr += 1
     return outptr
 
 
@@ -174,12 +174,12 @@ def build_huffman_tree(freq, freq_len):
     for i in range (0,freq_len):
         it = freq[i]
         heapq.heappush(pq, PqNode(it.count, serial, HuffNode(it.byte, None, None)))
-        serial = serial + 1
+        serial += 1
     while len(pq) > 1:
         a = heapq.heappop(pq)
         b = heapq.heappop(pq)
         heapq.heappush(pq, PqNode(a.weight + b.weight, serial, HuffNode(0, a.tree, b.tree)))
-        serial = serial + 1
+        serial += 1
     return heapq.heappop(pq).tree
 
 # Build table of character frequencies.
@@ -208,12 +208,11 @@ def compute_frequencies(input, input_len, freq):
         it.byte = b
         it.count = 0
     for i in range (0, input_len):
-        it = freq[input[i]]
-        it.count = it.count + 1
+        freq[input[i]].count += 1
     freq.sort()
     i = 256
     while freq[i-1].count == 0:
-        i = i - 1
+        i -= 1
     return i
 
 main()
