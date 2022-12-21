@@ -74,7 +74,6 @@ def compress_block(freq_buf, dict_buf, input, input_len, output, meta):
             put32(input_len)
             put32(output_len)
             return (output, output_len, meta, meta_loc)
-    print("Could not build dictionary or encode")
     put16(0)
     put32(input_len)
     return (input, input_len, meta, meta_loc)
@@ -97,7 +96,6 @@ def encode_block(input, inputlen, output, dictionary):
         width = width + dix.width
         while width >= 8:
             if outptr == len(output):
-                print("Output buffer overflow")
                 return None
             output[outptr] = bits & 255
             outptr = outptr + 1
@@ -105,7 +103,6 @@ def encode_block(input, inputlen, output, dictionary):
             width = width - 8
     if width > 0:
         if outptr == len(output):
-            print("Output buffer overflow")
             return None
         output[outptr] = bits & 255
         outptr = outptr + 1
@@ -132,7 +129,6 @@ def build_dictionary(tree, dictionary):
     def descend(t, bits, width):
         if t.left == None:
             if width > 56:
-                print("Too wide")
                 return False    # Can't encode
             dictionary[t.byte].bits = bits
             dictionary[t.byte].width = width
@@ -140,7 +136,6 @@ def build_dictionary(tree, dictionary):
         return descend(t.left, bits, width + 1) and descend(t.right, (1 << width) | bits, width + 1)
     
     if not descend(tree, 0, 0):
-        print("Failed to build dictionary")
         return None
 
     return dictionary
