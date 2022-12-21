@@ -1,3 +1,4 @@
+import heapq
 import io
 import sys
 
@@ -169,18 +170,22 @@ def build_huffman_tree(freq, freq_len):
             self.serial = serial
             self.tree = tree
 
-    pq = Pq(lambda a, b: a.weight < b.weight or (a.weight == b.weight and a.serial < b.serial))
+        def __lt__(self, other):
+            return (self.weight < other.weight or
+                    (self.weight == other.weight and self.serial < other.serial))
+            
+    pq = []
     serial = 0
     for i in range (0,freq_len):
         it = freq[i]
-        pq.insert(PqNode(it.count, serial, HuffNode(it.byte, None, None)))
+        heapq.heappush(pq, PqNode(it.count, serial, HuffNode(it.byte, None, None)))
         serial = serial + 1
-    while pq.length() > 1:
-        a = pq.extract_max()
-        b = pq.extract_max()
-        pq.insert(PqNode(a.weight + b.weight, serial, HuffNode(0, a.tree, b.tree)))
+    while len(pq) > 1:
+        a = heapq.heappop(pq)
+        b = heapq.heappop(pq)
+        heapq.heappush(pq, PqNode(a.weight + b.weight, serial, HuffNode(0, a.tree, b.tree)))
         serial = serial + 1
-    return pq.extract_max().tree
+    return heapq.heappop(pq).tree
 
 # Build table of character frequencies.
 #
@@ -195,6 +200,10 @@ class FreqItem:
         self.byte = byte
         self.count = 0
 
+    def __lt__(self, other):
+        return (self.count > other.count or
+                (self.count == other.count and self.byte < other.byte))
+
     def __repr__(self):
         return f"({self.byte} {self.count})"
 
@@ -204,68 +213,12 @@ def compute_frequencies(input, input_len, freq):
         it.byte = b
         it.count = 0
     for i in range (0, input_len):
-        b = input[i]
-        it = freq[b]
+        it = freq[input[i]]
         it.count = it.count + 1
-    # The sort is stable, so we need consider only the count.
-    freq.sort(key=lambda fi: -fi.count)
+    freq.sort()
     i = 256
     while freq[i-1].count == 0:
         i = i - 1
     return i
-
-# Generic priority queue
-
-class Pq:
-    def __init__(self, greater):
-        self.greater = greater
-        self.it = []
-
-    def length(self):
-        return len(self.it)
-
-    def insert(self, node):
-        loc = len(self.it)
-        self.it.append(node)
-        while loc > 0 and self.greater(self.it[loc], self.it[Pq.parent(loc)]):
-            self.swap(loc, Pq.parent(loc))
-            loc = Pq.parent(loc)
-
-    def extract_max(self):
-        # TODO: Throw if empty, don't just crash as now
-        max = self.it[0]
-        self.it[0] = self.it[len(self.it)-1]
-        self.it.pop()
-        if len(self.it) > 1:
-            self.heapify(0)
-        return max
-
-    # Private
-
-    def swap(self, a, b):
-        (self.it[a], self.it[b]) = (self.it[b], self.it[a])
-
-    def heapify(self, loc):
-        while True:
-            greatest = loc
-            l = Pq.left(loc)
-            if l < len(self.it) and self.greater(self.it[l], self.it[greatest]):
-                greatest = l
-            r = Pq.right(loc)
-            if r < len(self.it) and self.greater(self.it[r], self.it[greatest]):
-                greatest = r
-            if greatest == loc:
-                break
-            self.swap(loc, greatest)
-            loc = greatest
-
-    def parent(loc):
-        return (loc - 1) // 2;
-
-    def left(loc):
-        return (loc * 2) + 1;
-
-    def right(loc):
-        return (loc + 1) * 2;
 
 main()
