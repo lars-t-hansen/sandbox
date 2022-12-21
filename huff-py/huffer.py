@@ -235,7 +235,7 @@ class Pq:
         # TODO: Throw if empty, don't just crash as now
         max = self.it[0]
         self.it[0] = self.it[len(self.it)-1]
-        self.it = self.it[:len(self.it)-1]
+        self.it.pop()
         if len(self.it) > 1:
             self.heapify(0)
         return max
