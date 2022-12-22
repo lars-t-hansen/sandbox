@@ -13,7 +13,7 @@ def compress_file(input_name, output_name):
     input_buf = bytearray(65536)
     output_buf = bytearray(65536)
     meta_buf = bytearray(2+(5*256)+2*4)
-    freq_buf = [FreqItem(b) for b in range(0,256)]
+    freq_buf = [FreqItem() for b in range(0,256)]
     dict_buf = [DictItem(0, 0) for b in range (0, 256)]
 
     infile = io.open(input_name, 'rb')
@@ -89,20 +89,21 @@ def encode_block(input, inputlen, output, dictionary):
     outptr = 0
     bits = 0
     width = 0
+    outputlen = len(output)
     while inptr < inputlen:
         dix = dictionary[input[inptr]]
         inptr += 1
         bits = bits | (dix.bits << width)
         width = width + dix.width
         while width >= 8:
-            if outptr == len(output):
+            if outptr == outputlen:
                 return None
             output[outptr] = bits & 255
             outptr += 1
             bits >>= 8
             width -= 8
     if width > 0:
-        if outptr == len(output):
+        if outptr == outputlen:
             return None
         output[outptr] = bits & 255
         outptr += 1
@@ -122,7 +123,7 @@ class DictItem:
         self.bits = bits
         self.width = width
 
-    def __repr__(self):
+    def __str__(self):
         return f"({self.bits} {self.width})"
 
 def build_dictionary(tree, dictionary):
@@ -144,9 +145,8 @@ def build_dictionary(tree, dictionary):
 #
 # Input is a frequency table as produced by compute_frequencies.
 #
-# Returns a huffman-ordered binary tree.  Each node is a tuple (byte, left, right) where left and
-# right are None if this is a leaf node with the given byte value, otherwise left and right are both
-# non-None and the byte value is immaterial.
+# Returns a huffman-ordered binary tree.  `left` and `right` are None if this is a leaf node with
+# the given byte value, otherwise left and right are both non-None and the byte value is immaterial.
 
 class HuffNode:
     def __init__(self, byte, left, right):
@@ -154,7 +154,7 @@ class HuffNode:
         self.left = left
         self.right = right
 
-    def __repr__(self):
+    def __str__(self):
         return f"({self.byte} {self.left} {self.right})"
 
 def build_huffman_tree(freq, freq_len):
@@ -191,15 +191,15 @@ def build_huffman_tree(freq, freq_len):
 # of nonzero entries (the effective length of the frequency table).
 
 class FreqItem:
-    def __init__(self, byte):
-        self.byte = byte
+    def __init__(self):
+        self.byte = 0
         self.count = 0
 
     def __lt__(self, other):
         return (self.count > other.count or
                 (self.count == other.count and self.byte < other.byte))
 
-    def __repr__(self):
+    def __str__(self):
         return f"({self.byte} {self.count})"
 
 def compute_frequencies(input, input_len, freq):
