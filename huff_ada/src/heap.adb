@@ -83,7 +83,9 @@ package body Heap is
       elt := h.Items (0);
       h.Items (0) := h.Items (h.Length - 1);
       h.Length := h.Length - 1;
-      Heapify (h, 0);
+      if h.Length > 1 then
+         Heapify (h, 0);
+      end if;
    end Extract_Max;
 
 end Heap;
