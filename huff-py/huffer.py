@@ -64,9 +64,9 @@ def compress_block(freq_buf, dict_buf, input, input_len, output, meta):
 
     freq_len = compute_frequencies(input, input_len, freq_buf)
     tree = build_huffman_tree(freq_buf, freq_len)
-    if build_dictionary(tree, dict_buf) != None:
+    if build_dictionary(tree, dict_buf) is not None:
         output_len = encode_block(input, input_len, output, dict_buf)
-        if output_len != None:
+        if output_len is not None:
             put16(freq_len)
             for i in range (0,freq_len):
                 put8(freq_buf[i].byte)
@@ -128,7 +128,7 @@ class DictItem:
 
 def build_dictionary(tree, dictionary):
     def descend(t, bits, width):
-        if t.left == None:
+        if t.left is None:
             if width > 56:
                 return False    # Can't encode
             dictionary[t.byte].bits = bits

@@ -123,6 +123,24 @@ procedure Huff_Ada is
    --
    --  This will not raise any exceptions.  The tree will need to be freed
    --  once it's no longer needed.
+   --
+   --  I suppose we could pre-allocate the max number of nodes we need based
+   --  on the size of the frequency table, the upper bound is 2N-1 where N
+   --  is the length of the frequency table.  This would get rid of both
+   --  the risk of allocation failure and the use of unchecked deallocation.
+   --  But at the same time it would increase the risk of stack overflow
+   --  if the array of those nodes is allocated on the stack, and instead
+   --  of the "natural" pointers of the tree we would represent children
+   --  as indices, and every access to a node would incur a bounds check.
+   --  Sensibly, though, if this array is per-task we could pre-allocate
+   --  it for the maximum N at task startup, off the stack.
+   --
+   --  I've seen comments on the web that the implementation of stack-allocated
+   --  arrays may actually allocate off the stack, to avoid overflow, but
+   --  I've not looked at emitted code yet.  It makes sense.  It is an improvement
+   --  on heap allocation (fragmentation is an issue over time) but still does
+   --  not remove the risk of overflow, even if it is overflow-via-OOM on
+   --  the shadow stack.
 
    type Huff_Node;
    type Huff_Node_Ptr is access Huff_Node;
