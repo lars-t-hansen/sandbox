@@ -20,7 +20,10 @@ drivers for this.  There is no need for any bit-banging.  Speeds up to 400Kbps a
 higher speed.
 
 One possible limitation is that the I2C interface is described as single-master.  (I forget where I
-saw this, but I think it relates to the Linux device driver.)
+saw this, but I think it relates to the Linux device driver.  A note I made to myself: "it behaves
+like a master always, from what i can tell - it doesn't have an address that peripherals can
+address, it looks like transfers always have to be initiated from the pi.  to get the effect of
+being a slave the pi can initiate a master read however, and block on that.")
 
 I2C shows up as /dev/i2c-* for various channels, i2c-1 is the primary pin2/pin3 interface, i2c-2 is
 the secondary eeprom interface, I have not tested the latter.  These are char devices.  The devices
