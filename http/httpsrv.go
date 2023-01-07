@@ -1,3 +1,11 @@
+// Simple web server that supports the SnappySense PoC.
+//
+// GET /time returns a string that is the decimal number of seconds since
+// the Posix epoch, UTC.  (ie, it's a primitive time server.)
+//
+// POST /data takes a JSON object and writes it to a file.  It does not
+// check the validity of the object.
+
 package main
 
 import (
@@ -10,23 +18,26 @@ import (
   "time"
 )
 
+// The port we're listening on
+const PORT = 8086;
+
 func main() {
   http.HandleFunc("/time", func(w http.ResponseWriter, r *http.Request) {
-    fmt.Printf("/time")
+    log.Printf("/time")
     if r.Method != "GET" {
       w.WriteHeader(403)
       fmt.Fprintf(w, "Bad method")
       return
     }
-    t := time.Now()
-    s := fmt.Sprintf("%d\r\n", t.Unix())
-    w.Header()["Content-Length"] = []string{strconv.Itoa(len(s))}
+    payload := fmt.Sprintf("%d", time.Now().Unix())
+    w.Header()["Content-Length"] = []string{strconv.Itoa(len(payload))}
     w.Header()["Content-Type"] = []string{"text/plain"}
     w.WriteHeader(200)
-    fmt.Fprintf(w, "%d\r\n", t.Unix())
+    w.Write([]byte(payload))
   })
+
   http.HandleFunc("/data", func(w http.ResponseWriter, r *http.Request) {
-    fmt.Printf("/data")
+    log.Printf("/data")
     if r.Method != "POST" {
       w.WriteHeader(403)
       fmt.Fprintf(w, "Bad method")
@@ -53,7 +64,8 @@ func main() {
       }
     }
   })
-  log.Fatal(http.ListenAndServe(":8086", nil))
+
+  log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", PORT), nil))
 }
 
 
