@@ -42,11 +42,11 @@ int main(int argc, char** argv) {
 
   /* Construct an outgoing message that sends 0x05 10 times, in
      one message */
-  char payload[10] = {5, 5, 5, 5, 5, 5, 5, 5, 5, 5};
+  char payload[] = {'H','E','L','L','O','\n'};
   struct i2c_msg msgs[1];
   msgs[0].addr = remote_addr;
   msgs[0].flags = 0;		/* Write */
-  msgs[0].len = 10;
+  msgs[0].len = sizeof(payload);
   msgs[0].buf = payload;
   struct i2c_rdwr_ioctl_data data;
   data.msgs = msgs;
