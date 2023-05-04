@@ -172,7 +172,8 @@ static void wait_for_work_done() {
   pthread_mutex_unlock(&c_lock);
 }
 
-static void* mandel_worker(void*) {
+/* variable names required for some older compilers */
+static void* mandel_worker(void* dummy) {
   for (;;) {
     struct qitem it = dequeue();
     mandel_slice(it.start_y, it.lim_y, it.start_x, it.lim_x);
