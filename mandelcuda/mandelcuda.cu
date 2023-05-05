@@ -66,8 +66,7 @@ __device__ unsigned mandel_pixel(unsigned py, unsigned px) {
     y = ny;
     iteration++;
   }
-  return 1;
-  //return iteration;
+  return iteration;
 }
 
 __global__ void mandel_worker(unsigned* iterations) {
@@ -75,12 +74,16 @@ __global__ void mandel_worker(unsigned* iterations) {
   unsigned col = blockIdx.x * blockDim.x + threadIdx.x;
   if (row < HEIGHT && col < WIDTH) {
     iterations[row*WIDTH + col] = mandel_pixel(row, col);
-  } else {
-    iterations[row*WIDTH + col] = 5;
   }
 }
 
 static void mandel() {
+#ifndef NDEBUG
+  int dev = -87;
+  cudaGetDevice(&dev);
+  fprintf(stderr, "device %d\n", dev);
+#endif
+
   size_t nbytes = sizeof(unsigned)*HEIGHT*WIDTH;
   assert(nbytes == sizeof(iterations));
   unsigned *dev_iterations;
@@ -96,11 +99,13 @@ static void mandel() {
   dim3 blocksPerGrid((WIDTH+TILEX-1)/TILEX, (HEIGHT+TILEY-1)/TILEY);
   mandel_worker<<<blocksPerGrid, threadsPerBlock>>>(dev_iterations);
 
+#ifndef NDEBUG
   for ( int y=0 ; y < HEIGHT; y++ ) {
     for ( int x=0 ; x < WIDTH; x++ ) {
       iterations[y*WIDTH + x] = 2;
     }
   }
+#endif
   if ((err = cudaMemcpy(iterations, dev_iterations, nbytes, cudaMemcpyDeviceToHost)) != 0) {
     fprintf(stderr, "memcpy %d\n", err);
     abort();
