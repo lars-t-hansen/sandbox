@@ -5,8 +5,10 @@
    directly into the result array and signal completion to the coordinator.  Each worker uses
    SIMD operations.  */
 
-/* For SIMD128, float_t must be float */
-#define SIMD128
+/* For SIMD128 and SIMD256, float_t must be float */
+/* For SIMD128 we could also support ARM64 but for now only INTEL */
+/*#define SIMD128*/
+#define SIMD256
 #define INTEL
 #define DEFAULT_THREADS 4
 
@@ -21,13 +23,22 @@
 # include <smmintrin.h>
 # include <xmmintrin.h>
 #endif
+#if defined(SIMD256) && defined(INTEL)
+# include <emmintrin.h>
+# include <immintrin.h>
+# include <smmintrin.h>
+# include <xmmintrin.h>
+#endif
 
 static unsigned num_threads = DEFAULT_THREADS;
 
 /* For SIMD128 (b/c I'm lazy):
    The canvas size must be divisible by 4 in the x dimension
    The tile size must be divisible by 4 in the x dimension
-   However the tile size need not divide the canvas size in the x dimension */
+   However the tile size need not divide the canvas size in the x dimension
+
+   For SIMD256, ditto but 8 instead of 4
+*/
 
 /* Canvas size in pixels */
 #define WIDTH 1400
@@ -85,7 +96,11 @@ static inline float_t scale(float_t v, float_t rng, float_t min, float_t max) {
 }
 
 static void mandel_slice(unsigned start_y, unsigned lim_y, unsigned start_x, unsigned lim_x) {
-#ifdef SIMD128
+#ifndef NDEBUG
+  printf("Work %u %u %u %u\n", start_y, lim_y, start_x, lim_x);
+#endif
+
+#if defined(SIMD128)
 # ifdef INTEL
   /* These abstractions are roughly from WASM SIMD although we have separate int and float types here. */
   typedef __m128i i128_t;
@@ -111,10 +126,6 @@ static void mandel_slice(unsigned start_y, unsigned lim_y, unsigned start_x, uns
 # else
 #  error Bad architecture
 # endif
-
-#ifndef NDEBUG
-  printf("Work %u %u %u %u\n", start_y, lim_y, start_x, lim_x);
-#endif
 
   assert((lim_x - start_x) % 4 == 0);
   for ( unsigned py=start_y ; py < lim_y; py++ ) {
@@ -148,7 +159,71 @@ static void mandel_slice(unsigned start_y, unsigned lim_y, unsigned start_x, uns
       *addr++ = counter;
     }
   }
+#elif defined(SIMD256)
+# ifdef INTEL
+  /* These abstractions are roughly from WASM SIMD although we have separate int and float types here. */
+  typedef __m256i i256_t;
+  typedef __m256 f256_t;
+
+#  define f32x8_splat(x) _mm256_set_m128(_mm_set_ps1(x), _mm_set_ps1(x))
+#  define f32x8_make(a, b, c, d, e, f, g, h) _mm256_set_ps(h, g, f, e, d, c, b, a)
+#  define f32x8_const(a, b, c, d, e, f, g, h) _mm256_set_ps(h, g, f, e, d, c, b, a)
+#  define f32x8_mul(x, y) _mm256_mul_ps(x, y)
+#  define f32x8_add(x, y) _mm256_add_ps(x, y)
+#  define f32x8_sub(x, y) _mm256_sub_ps(x, y)
+
+  /* Comparison ops produce integer results */
+#  define f32x8_le(x, y) (__m256i)_mm256_cmp_ps(x, y, _CMP_LT_OS)
+#  define f32x8_gt(x, y) (__m256i)_mm256_cmp_ps(x, y, _CMP_GT_OS)
+
+#  define i32x8_const(a, b, c, d, e, f, g, h) _mm256_set_epi32(h, g, f, e, d, c, b, a)
+#  define i32x8_all_false(a) _mm256_testz_si256(a, a)
+#  define i32x8_add(x, y) _mm256_add_epi32(x, y)
+#  define i32x8_sub(x, y) _mm256_sub_epi32(x, y)
+#  define i32x8_gt(x, y) _mm256_cmpgt_epi32(x, y)
+#  define i256_and(x, y) _mm256_and_si256(x, y)
+# else
+#  error Bad architecture
+# endif
+
+  assert((lim_x - start_x) % 8 == 0);
+  for ( unsigned py=start_y ; py < lim_y; py++ ) {
+    i256_t* addr = (i256_t*)&iterations[py][start_x];
+    f256_t  y0 = f32x8_splat(scale((float)py, HEIGHT, MINY, MAXY));
+    for ( float px=start_x ; px < lim_x; px+=8 ) {
+      f256_t x0 = f32x8_make(scale(px,   WIDTH, MINX, MAXX),
+			     scale(px+1, WIDTH, MINX, MAXX),
+			     scale(px+2, WIDTH, MINX, MAXX),
+			     scale(px+3, WIDTH, MINX, MAXX),
+			     scale(px+4, WIDTH, MINX, MAXX),
+			     scale(px+5, WIDTH, MINX, MAXX),
+			     scale(px+6, WIDTH, MINX, MAXX),
+			     scale(px+7, WIDTH, MINX, MAXX));
+      f256_t x = f32x8_const(0, 0, 0, 0, 0, 0, 0, 0);
+      f256_t y = f32x8_const(0, 0, 0, 0, 0, 0, 0, 0);
+      i256_t active = i32x8_const(-1, -1, -1, -1, -1, -1, -1, -1);
+      i256_t counter = i32x8_const(CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF);
+      for(;;) {
+	f256_t x_sq = f32x8_mul(x, x);
+	f256_t y_sq = f32x8_mul(y, y);
+	f256_t sum_sq = f32x8_add(x_sq, y_sq);
+	active = i256_and(active, f32x8_le(sum_sq, f32x8_const(4, 4, 4, 4, 4, 4, 4, 4)));
+	active = i256_and(active, i32x8_gt(counter, i32x8_const(0, 0, 0, 0, 0, 0, 0, 0)));
+	if (i32x8_all_false(active)) {
+	  break;
+	}
+	f256_t tmp = f32x8_add(f32x8_sub(x_sq, y_sq), x0);
+	f256_t xy = f32x8_mul(x, y);
+	y = f32x8_add(f32x8_add(xy, xy), y0);
+	x = tmp;
+	counter = i32x8_add(counter, active);
+      }
+      counter = i32x8_sub(i32x8_const(CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF, CUTOFF), counter);
+      *addr++ = counter;
+    }
+  }
 #else
+  /* Scalar code */
   unsigned py;
   for (py = start_y; py < lim_y; py++) {
     float_t y0 = scale(py, HEIGHT, MINY, MAXY);
