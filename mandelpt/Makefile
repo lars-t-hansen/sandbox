@@ -1,4 +1,4 @@
 # -lpthread required for some older systems
-CFLAGS=-O3 -DNDEBUG -pthread
+CFLAGS=-O3 -DNDEBUG -lpthread
 
 mandelpt:

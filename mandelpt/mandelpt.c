@@ -5,11 +5,14 @@
    4x speedup over the sequential version with 4 threads (1822ms vs 459ms). */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include <sys/time.h>
 #include <inttypes.h>
 
-#define NUMTHREADS 4
+#define DEFAULT_THREADS 4
+
+static unsigned num_threads = DEFAULT_THREADS;
 
 /* Canvas size in pixels */
 #define WIDTH 1400
@@ -183,7 +186,7 @@ static void* mandel_worker(void* dummy) {
 
 static void create_workers() {
   int i;
-  for (i=0 ; i < NUMTHREADS; i++) {
+  for (i=0 ; i < num_threads; i++) {
     pthread_t dummy;
     pthread_create(&dummy, NULL, mandel_worker, NULL);
   }
@@ -237,6 +240,16 @@ static void dump(const char* filename) {
 }
 
 int main(int argc, char** argv) {
+  if (argc > 1) {
+    if (sscanf(argv[1], "-j%u", &num_threads) == 1) {
+      if (num_threads == 0) {
+	fprintf(stderr, "Zero threads\n");
+	exit(1);
+      }
+    } else {
+      fprintf(stderr, "Bad option %s\n", argv[1]);
+    }
+  }
   struct timeval before, after;
   create_workers();
   gettimeofday(&before, NULL);
