@@ -3,12 +3,34 @@
 
 #include "cuda_runtime.h"
 
-/* Default values are such that tile_x*tile_y==32, the size of a warp.  The warp will only exit once
-   all threads are done, so if one thread gets stuck in a deep search while the others exit we're
-   wasting time. */
+/* Several interesting complications here:
+
+   - The `iterations` array must be allocated as Cuda host memory in order to optimize the memcpy
+     (otherwise the memcpy is very slow); not a free lunch though: this memory is pinned in RAM and
+     we can't have an unbounded amount
+
+   - Host malloc is also expensive and the expense grows with the size.  It is more expensive than
+     the computation in our case.  So the allocation cost must be amortized.
+
+   - The cuda initialization takes a long time and is measured separately, and in practice it means
+     that we must amortize the cost of it across many runs of computation.
+
+   - Default tile sizes are such that tile_x*tile_y==32, the size of a warp.  Empirically this
+     appears pretty much to be optimal.  The warp will only exit once all threads are done, so if
+     one thread gets stuck in a deep search while the others exit we're wasting time.  But it seems
+     likely (fractals...)  that no particular shape of a tile will be better than another, only
+     smaller tiles could be better, and then only if scheduling is free.  But my understanding is
+     that no tile can effectively be smaller than a warp without basically wasting resources. */
 
 static unsigned tile_y = 2;
 static unsigned tile_x = 16;
+
+/* TODO: Can the host memory be mapped into the cuda address space so as to avoid the memcpy?  See
+   the cudaHostAllocMapped flag to cudaHostAlloc. The code runs but the output is borked, maybe need
+   some kind of sync?  Or is the code incomplete.  There is cudaHostGetDevicePointer and in the
+   description of that there's wording about registering things, too. */
+
+//#define USE_MAPPED_MEMORY_IF_POSSIBLE
 
 /* Canvas size in pixels */
 #define WIDTH 1400
@@ -22,16 +44,15 @@ static const float_t MAXY = 1;
 static const float_t MINX = -2.5;
 static const float_t MAXX = 1;
 
-static unsigned iterations[HEIGHT * WIDTH];
+static unsigned* iterations; // Cuda host memory, [HEIGHT * WIDTH]
 
 #include "../mandelcommon/mandelcommon.h"
 
 __device__ inline float_t scale(float_t v, float_t rng, float_t min, float_t max) {
-  return min + v*(max-min)/rng;
+  return min + v*((max-min)/rng);
 }
 
 __device__ unsigned mandel_pixel(unsigned py, unsigned px) {
-  /* TODO: Overhead.  We can hoist a bunch of stuff here I think. */
   float_t y0 = scale(py, HEIGHT, MINY, MAXY);
   float_t x0 = scale(px, WIDTH, MINX, MAXX);
   float_t x = 0, y = 0;
@@ -54,28 +75,55 @@ __global__ void mandel_worker(unsigned* iterations) {
   }
 }
 
-static void mandel() {
+static bool can_map_memory = false;
+
+static void initCuda() {
+  /* Get the device ID and sync to force initialization so that it doesn't pollute timings.  Getting
+     the device ID is by itself not enough. */
+  begin_timer();
+  int dev_id;
+  cudaGetDevice(&dev_id);
+  unsigned flags;
+  cudaGetDeviceFlags(&flags);
+#ifdef USE_MAPPED_MEMORY_IF_POSSIBLE
+  can_map_memory = flags & cudaDeviceMapHost;
+#endif
+  cudaDeviceSynchronize();
+  end_timer("init");
 #ifndef NDEBUG
-  int dev = -87;
-  cudaGetDevice(&dev);
   fprintf(stderr, "device %d\n", dev);
 #endif
+}
 
-  size_t nbytes = sizeof(iterations);
+static void initHostMemory() {
+  size_t nbytes = HEIGHT*WIDTH*sizeof(unsigned);
+  cudaError_t err;
+  begin_timer();
+  if (can_map_memory) {
+    if ((err = cudaHostAlloc(&iterations, nbytes, cudaHostAllocMapped)) != 0) {
+      fprintf(stderr, "host alloc mapped %zu bytes %d\n", nbytes, err);
+      abort();
+    }
+  } else {
+    if ((err = cudaMallocHost(&iterations, nbytes)) != 0) {
+      fprintf(stderr, "host malloc %zu bytes %d\n", nbytes, err);
+      abort();
+    }
+  }
+  end_timer("Host malloc");
+}
+
+static void mandel() {
+  size_t nbytes = HEIGHT*WIDTH*sizeof(unsigned);
   unsigned *dev_iterations;
   cudaError_t err;
 
-  /* Just sync to force initialization so that it doesn't pollute timings */
-  begin_timer();
-  cudaDeviceSynchronize();
-  end_timer("init");
-
   begin_timer();
   if ((err = cudaMalloc(&dev_iterations, nbytes)) != 0) {
-    fprintf(stderr, "malloc %zu bytes %d\n", nbytes, err);
+    fprintf(stderr, "device malloc %zu bytes %d\n", nbytes, err);
     abort();
   }
-  end_timer("Malloc");
+  end_timer("Device malloc");
 
   dim3 threadsPerBlock(tile_x, tile_y);
   dim3 blocksPerGrid((WIDTH+tile_x-1)/tile_x, (HEIGHT+tile_y-1)/tile_y);
@@ -84,12 +132,17 @@ static void mandel() {
   cudaDeviceSynchronize();
   end_timer("Compute");
 
-  begin_timer();
-  if ((err = cudaMemcpy(iterations, dev_iterations, nbytes, cudaMemcpyDeviceToHost)) != 0) {
-    fprintf(stderr, "memcpy %d\n", err);
-    abort();
+  if (!can_map_memory) {
+    begin_timer();
+    if ((err = cudaMemcpy(iterations, dev_iterations, nbytes, cudaMemcpyDeviceToHost)) != 0) {
+      fprintf(stderr, "memcpy %d\n", err);
+      abort();
+    }
+    cudaDeviceSynchronize();
+    end_timer("Memcpy");
+  } else {
+    // Probably need some kind of synchronization?
   }
-  end_timer("Memcpy");
 
   begin_timer();
   cudaFree(dev_iterations);
@@ -115,6 +168,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Bad option %s\n", argv[1]);
   }
 
+  initCuda();
+  initHostMemory();
   mandel();
   dump("mandelcuda.ppm");
 }
