@@ -1,11 +1,14 @@
+/* -*- fill-column: 100 -*- */
 /* Cuda mandelbrot */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
-#include <inttypes.h>
-#include <assert.h>
 #include "cuda_runtime.h"
+
+/* Default values are such that tile_x*tile_y==32, the size of a warp.  The warp will only exit once
+   all threads are done, so if one thread gets stuck in a deep search while the others exit we're
+   wasting time. */
+
+static unsigned tile_y = 2;
+static unsigned tile_x = 16;
 
 /* Canvas size in pixels */
 #define WIDTH 1400
@@ -19,48 +22,9 @@ static const float_t MAXY = 1;
 static const float_t MINX = -2.5;
 static const float_t MAXX = 1;
 
-#define RGB(r, g, b) ((r << 16) | (g << 8) | b)
-
-/* Supposedly the gradients used by the Wikipedia mandelbrot page */
-static unsigned mapping[] = {
-  RGB(66, 30, 15),
-  RGB(25, 7, 26),
-  RGB(9, 1, 47),
-  RGB(4, 4, 73),
-  RGB(0, 7, 100),
-  RGB(12, 44, 138),
-  RGB(24, 82, 177),
-  RGB(57, 125, 209),
-  RGB(134, 181, 229),
-  RGB(211, 236, 248),
-  RGB(241, 233, 191),
-  RGB(248, 201, 95),
-  RGB(255, 170, 0),
-  RGB(204, 128, 0),
-  RGB(153, 87, 0),
-  RGB(106, 52, 3),
-};
-
 static unsigned iterations[HEIGHT * WIDTH];
 
-static struct timeval before;
-
-static void begin_timer() {
-  gettimeofday(&before, NULL);
-}
-
-static void end_timer(const char* what) {
-  struct timeval after;
-  gettimeofday(&after, NULL);
-  int64_t delta = ((int64_t)after.tv_sec - (int64_t)before.tv_sec)*1000000 + (after.tv_usec - before.tv_usec);
-  printf("%s: Elapsed %" PRIi64 "ms\n", what, delta/1000);
-}
-
-static void from_rgb(unsigned rgb, unsigned* r, unsigned* g, unsigned* b) {
-  *r = (rgb >> 16) & 255;
-  *g = (rgb >> 8) & 255;
-  *b = rgb & 255;
-}
+#include "../mandelcommon/mandelcommon.h"
 
 __device__ inline float_t scale(float_t v, float_t rng, float_t min, float_t max) {
   return min + v*(max-min)/rng;
@@ -97,29 +61,24 @@ static void mandel() {
   fprintf(stderr, "device %d\n", dev);
 #endif
 
-  size_t nbytes = sizeof(unsigned)*HEIGHT*WIDTH;
-  assert(nbytes == sizeof(iterations));
+  size_t nbytes = sizeof(iterations);
   unsigned *dev_iterations;
   cudaError_t err;
 
+  /* Just sync to force initialization so that it doesn't pollute timings */
   begin_timer();
   cudaDeviceSynchronize();
   end_timer("init");
 
   begin_timer();
   if ((err = cudaMalloc(&dev_iterations, nbytes)) != 0) {
-    fprintf(stderr, "malloc %u bytes %d\n", (unsigned)nbytes, err);
+    fprintf(stderr, "malloc %zu bytes %d\n", nbytes, err);
     abort();
   }
-  end_timer("malloc");
+  end_timer("Malloc");
 
-  /* 3x3 seems like the sweet spot (at least on ML3) */
-  /* This still does not beat the pthreads version on 55 cores */
-  /* TODO: Make this a parameter to the program */
-  const unsigned TILEY = 2;
-  const unsigned TILEX = 4;
-  dim3 threadsPerBlock(TILEX, TILEY);
-  dim3 blocksPerGrid((WIDTH+TILEX-1)/TILEX, (HEIGHT+TILEY-1)/TILEY);
+  dim3 threadsPerBlock(tile_x, tile_y);
+  dim3 blocksPerGrid((WIDTH+tile_x-1)/tile_x, (HEIGHT+tile_y-1)/tile_y);
   begin_timer();
   mandel_worker<<<blocksPerGrid, threadsPerBlock>>>(dev_iterations);
   cudaDeviceSynchronize();
@@ -130,29 +89,32 @@ static void mandel() {
     fprintf(stderr, "memcpy %d\n", err);
     abort();
   }
+  end_timer("Memcpy");
+
+  begin_timer();
   cudaFree(dev_iterations);
   end_timer("Free");
 }
 
-static void dump(const char* filename) {
-  FILE* out = fopen(filename, "w");
-  fprintf(out, "P6 %d %d 255\n", WIDTH, HEIGHT);
-  unsigned y, x;
-  for (y=0; y < HEIGHT; y++) {
-    for ( x = 0 ; x < WIDTH; x++ ) {
-      unsigned r = 0, g = 0, b = 0;
-      if (iterations[y*WIDTH + x] < CUTOFF) {
-	from_rgb(mapping[iterations[y*WIDTH + x] % 16], &r, &g, &b);
-      }
-      fputc(r, out);
-      fputc(g, out);
-      fputc(b, out);
-    }
-  }
-  fclose(out);
-}
-
 int main(int argc, char** argv) {
+  for (int i=1 ; i < argc; i++ ) {
+    if (sscanf(argv[i], "-y%u", &tile_y) == 1) {
+      if (tile_y == 0) {
+	fprintf(stderr, "Zero rows\n");
+	exit(1);
+      }
+      continue;
+    }
+    if (sscanf(argv[i], "-x%u", &tile_x) == 1) {
+      if (tile_x == 0) {
+	fprintf(stderr, "Zero columns\n");
+	exit(1);
+      }
+      continue;
+    }
+    fprintf(stderr, "Bad option %s\n", argv[1]);
+  }
+
   mandel();
   dump("mandelcuda.ppm");
 }
