@@ -1,4 +1,6 @@
-/* Cuda mandelbrot */
+/* Cuda mandelbrot following the naive algorithm with one thread per pixel iterating until the
+   cutoff is reached or we go outside the circle.  This is not very Cuda-friendly as it introduces a
+   decision point in the thread where some threads try to exit and some try to continue looping. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,13 +101,6 @@ static void mandel() {
   dim3 blocksPerGrid((WIDTH+TILEX-1)/TILEX, (HEIGHT+TILEY-1)/TILEY);
   mandel_worker<<<blocksPerGrid, threadsPerBlock>>>(dev_iterations);
 
-#ifndef NDEBUG
-  for ( int y=0 ; y < HEIGHT; y++ ) {
-    for ( int x=0 ; x < WIDTH; x++ ) {
-      iterations[y*WIDTH + x] = 2;
-    }
-  }
-#endif
   if ((err = cudaMemcpy(iterations, dev_iterations, nbytes, cudaMemcpyDeviceToHost)) != 0) {
     fprintf(stderr, "memcpy %d\n", err);
     abort();
