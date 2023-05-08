@@ -43,6 +43,19 @@ static unsigned mapping[] = {
 
 static unsigned iterations[HEIGHT * WIDTH];
 
+static struct timeval before;
+
+static void begin_timer() {
+  gettimeofday(&before, NULL);
+}
+
+static void end_timer(const char* what) {
+  struct timeval after;
+  gettimeofday(&after, NULL);
+  int64_t delta = ((int64_t)after.tv_sec - (int64_t)before.tv_sec)*1000000 + (after.tv_usec - before.tv_usec);
+  printf("%s: Elapsed %" PRIi64 "ms\n", what, delta/1000);
+}
+
 static void from_rgb(unsigned rgb, unsigned* r, unsigned* g, unsigned* b) {
   *r = (rgb >> 16) & 255;
   *g = (rgb >> 8) & 255;
@@ -88,29 +101,37 @@ static void mandel() {
   assert(nbytes == sizeof(iterations));
   unsigned *dev_iterations;
   cudaError_t err;
+
+  begin_timer();
+  cudaDeviceSynchronize();
+  end_timer("init");
+
+  begin_timer();
   if ((err = cudaMalloc(&dev_iterations, nbytes)) != 0) {
     fprintf(stderr, "malloc %u bytes %d\n", (unsigned)nbytes, err);
     abort();
   }
+  end_timer("malloc");
 
-  const unsigned TILEY = 4;
+  /* 3x3 seems like the sweet spot (at least on ML3) */
+  /* This still does not beat the pthreads version on 55 cores */
+  /* TODO: Make this a parameter to the program */
+  const unsigned TILEY = 2;
   const unsigned TILEX = 4;
   dim3 threadsPerBlock(TILEX, TILEY);
   dim3 blocksPerGrid((WIDTH+TILEX-1)/TILEX, (HEIGHT+TILEY-1)/TILEY);
+  begin_timer();
   mandel_worker<<<blocksPerGrid, threadsPerBlock>>>(dev_iterations);
+  cudaDeviceSynchronize();
+  end_timer("Compute");
 
-#ifndef NDEBUG
-  for ( int y=0 ; y < HEIGHT; y++ ) {
-    for ( int x=0 ; x < WIDTH; x++ ) {
-      iterations[y*WIDTH + x] = 2;
-    }
-  }
-#endif
+  begin_timer();
   if ((err = cudaMemcpy(iterations, dev_iterations, nbytes, cudaMemcpyDeviceToHost)) != 0) {
     fprintf(stderr, "memcpy %d\n", err);
     abort();
   }
   cudaFree(dev_iterations);
+  end_timer("Free");
 }
 
 static void dump(const char* filename) {
@@ -132,11 +153,6 @@ static void dump(const char* filename) {
 }
 
 int main(int argc, char** argv) {
-  struct timeval before, after;
-  gettimeofday(&before, NULL);
   mandel();
-  gettimeofday(&after, NULL);
-  int64_t delta = ((int64_t)after.tv_sec - (int64_t)before.tv_sec)*1000000 + (after.tv_usec - before.tv_usec);
-  printf("Elapsed %" PRIi64 "ms\n", delta/1000);
   dump("mandelcuda.ppm");
 }
