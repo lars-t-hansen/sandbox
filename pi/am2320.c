@@ -1,5 +1,8 @@
 /* -*- fill-column: 100 -*-
 
+   Linux implementation of the Interface to the Adafruit AM2320 family of temperature/humidity
+   sensors.
+
    The following code has been copied from https://github.com/Gozem/am2320 (MIT License).  It has
    been adapted for robustness (retry wakeup) and modularity (header file), and edited for clarity.
    The exegesis of the data sheet is mine.
@@ -39,10 +42,10 @@
      0x08   High byte of model#
      0x09   Low byte of model#
      0x0A   Version number
-     0x0B   Device ID "(24-31) Bit"
-     0x0C   Device ID "(24-31) Bit"
-     0x0D   Device ID "(24-31) Bit"
-     0x0E   Device ID "(24-31) Bit"
+     0x0B   Device ID bits 24-31
+     0x0C   Device ID bits 16-23
+     0x0D   Device ID bits 8-15
+     0x0E   Device ID bits 0-7
      0x0F   Status register, currently reserved / no function
      0x10   "Users register a high"
      0x11   "Users register a low"
@@ -50,8 +53,8 @@
      0x13   "Users register 2 low"
      All other registers are reserved
 
-  My interpretation is that 0x0B..0x0E are the four bytes of a 32-bit device ID, order TBD
-  and that 0x10..0x13 are reserved for user data, perhaps so that state can be stored there.
+  0x10..0x13 are reserved for user data.  Only 0x0F .. 0x13 can be written, and 0x0F must be written
+  separately.
 
   At most 10 registers can be read or written per transaction.
 
@@ -73,11 +76,11 @@
 */
 
 #include <stdio.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <fcntl.h> 
 #include <linux/i2c-dev.h>
 #include <unistd.h>
-#include <stdint.h>
 #include <errno.h>
 
 #include "am2320.h"
@@ -109,32 +112,42 @@ combine_bytes(uint8_t msb, uint8_t lsb)
   return ((uint16_t)msb << 8) | (uint16_t)lsb;
 }
 
-int 
-read_am2320(unsigned i2c_device_no, float *out_temperature, float *out_humidity) 
-{
-  int fd;
-  uint8_t data[8];
+int
+am2320_open(unsigned i2c_device_no, am2320_t* out_fd) {
   char device[64];
-
   sprintf(device, "/dev/i2c-%u", i2c_device_no);
-  fd = open(device, O_RDWR);
+
+  int fd = open(device, O_RDWR);
   if (fd < 0)
     return AM2320_ERR_OPEN;
 
-  if (ioctl(fd, I2C_SLAVE, AM2321_ADDR) < 0)
+  if (ioctl(fd, I2C_SLAVE, AM2321_ADDR) < 0) {
+    close(fd);
     return AM2320_ERR_INIT;
+  }
    
+  *out_fd = fd;
+  return AM2320_OK;
+}
+
+void
+am2320_close(am2320_t fd) {
+  close(fd);
+}
+
+/* buf must be large enough to hold numregs bytes */
+static int
+wake_and_read(int fd, uint8_t firstreg, uint8_t numregs, uint8_t* buf) {
+
   /* wake AM2320 up, goes to sleep to not warm up and affect the humidity sensor */
  again:
   write(fd, NULL, 0);
   usleep(1000); /* at least 0.8ms, at most 3ms */
   
-  /* write at addr 0x03, start reg = 0x00, num regs = 0x04 */
-  data[0] = 0x03; 
-  data[1] = 0x00; 
-  data[2] = 0x04;
+  /* signal we want to read */
+  uint8_t setup_buf[3] = {0x03, firstreg, numregs};
   int iter = 0;
-  if (write(fd, data, 3) < 0) {
+  if (write(fd, setup_buf, sizeof(setup_buf)) < 0) {
     if (errno == EREMOTEIO && ++iter < 5) {
       goto again;
     }
@@ -143,38 +156,53 @@ read_am2320(unsigned i2c_device_no, float *out_temperature, float *out_humidity)
   
   /* wait for AM2320 */
   usleep(1600); /* Wait atleast 1.5ms */
-  
-  /*
-   * Read out 8 bytes of data
-   * Byte 0: Should be Modbus function code 0x03
-   * Byte 1: Should be number of registers to read (0x04)
-   * Byte 2: Humidity msb
-   * Byte 3: Humidity lsb
-   * Byte 4: Temperature msb
-   * Byte 5: Temperature lsb
-   * Byte 6: CRC lsb byte
-   * Byte 7: CRC msb byte
-   */
-  if (read(fd, data, 8) < 0)
+
+  /* Max length of returned value is 4 + 10 = 14 bytes */
+  uint8_t tmp[14];
+  if (read(fd, tmp, 4 + numregs) < 0)
     return AM2320_ERR_READ;
-  
-  close(fd);
 
-  //printf("[0x%02x 0x%02x  0x%02x 0x%02x  0x%02x 0x%02x  0x%02x 0x%02x]\n", data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7] );
-
-  /* Check data[0] and data[1] */
-  if (data[0] != 0x03 || data[1] != 0x04)
+  if (tmp[0] != 0x03 || tmp[1] != numregs)
     return AM2320_ERR_PREFIX;
 
-  /* Check CRC */
-  uint16_t crcdata = calc_crc16(data, 6);
-  uint16_t crcread = combine_bytes(data[7], data[6]);
+  /* Check CRC - in last two bytes, little-endian (weird but true) */
+  uint16_t crcdata = calc_crc16(tmp, numregs + 2);
+  uint16_t crcread = combine_bytes(tmp[numregs + 3], tmp[numregs + 2]);
   if (crcdata != crcread) 
-    return AM2320_ERR_PREFIX;
+    return AM2320_ERR_CRC;
+  
+  memcpy(buf, tmp+2, numregs);
+  return AM2320_OK;
+}
 
-  uint16_t temp16 = combine_bytes(data[4], data[5]); 
-  uint16_t humi16 = combine_bytes(data[2], data[3]);   
-  //printf("temp=%u 0x%04x  hum=%u 0x%04x\n", temp16, temp16, humi16, humi16);
+int
+am2320_read_id(am2320_t fd, int* model, int* version, int* dev_id) {
+  int res;
+  uint8_t data[7];
+
+  if ((res = wake_and_read(fd, 0x08, 7, data)) != AM2320_OK)
+    return res;
+
+  *model = combine_bytes(data[0], data[1]);
+  *version = data[2];
+  *dev_id = ((int)data[3] << 24) | ((int)data[4] << 16) | ((int)data[5] << 8) | (int)data[6];
+
+  return AM2320_OK;
+}
+
+int 
+am2320_read_sensors(am2320_t fd, float *out_temperature, float *out_humidity) 
+{
+  int res;
+
+  // Humidity in low two bytes, big-endian magnitude
+  // Temperature in high two bytes, big-endian sign+magnitude
+  uint8_t data[4];
+  if ((res = wake_and_read(fd, 0x00, 4, data)) != AM2320_OK)
+    return res;
+  
+  uint16_t temp16 = combine_bytes(data[2], data[3]);
+  uint16_t humi16 = combine_bytes(data[0], data[1]);
   
   /* Temperature resolution is 16Bit, 
    * temperature highest bit (Bit15) is equal to 1 indicates a
