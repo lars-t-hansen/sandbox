@@ -4,8 +4,8 @@
    sensors.
 
    The following code has been copied from https://github.com/Gozem/am2320 (MIT License).  It has
-   been adapted for robustness (retry wakeup) and modularity (header file), and edited for clarity.
-   The exegesis of the data sheet is mine.
+   been adapted for robustness (retry wakeup) and modularity (header file), edited for clarity, and
+   expanded with new functionality.
 
    Possible TODO items:
 
@@ -20,61 +20,6 @@
    - there may be reason to retry also the read if it fails (read error, prefix error, crc error)?
 */
 
-/* Adafruit AM2320 temperature/humidity sensor.
-
-   The data sheet for this device is a little hard to read (it is not quite English), here's a
-   summary:
-
-   The pinout, with the "holes" on the side of the device facing us:
-     1 - VCC (3.1V - 5V)
-     2 - SDA
-     3 - GND
-     4 - SCL
-
-   The sensor is an I2C slave with address 0xB8 (pre-shifted).
-
-   Registers are byte sized.  The register addresses and functions/meanings are:
-
-     0x00   High byte of unsigned humidity*10
-     0x01     Low byte of ditto
-     0x02   High byte of sign+magnitude temperature*10, sign in high bit
-     0x03     Low byte of ditto
-     0x08   High byte of model#
-     0x09   Low byte of model#
-     0x0A   Version number
-     0x0B   Device ID bits 24-31
-     0x0C   Device ID bits 16-23
-     0x0D   Device ID bits 8-15
-     0x0E   Device ID bits 0-7
-     0x0F   Status register, currently reserved / no function
-     0x10   "Users register a high"
-     0x11   "Users register a low"
-     0x12   "Users register 2 high"
-     0x13   "Users register 2 low"
-     All other registers are reserved
-
-  0x10..0x13 are reserved for user data.  Only 0x0F .. 0x13 can be written, and 0x0F must be written
-  separately.
-
-  At most 10 registers can be read or written per transaction.
-
-  Overall operation:
-
-  - the electrical characteristics 
-
-  The meat is on data sheet p12 forward:
-
-  Function codes:
-
-    0x03 reads data
-      I2C Write to 0xB8: 0x03 start-register number-of-registers
-      I2C Read from 0xB8: 0x03 number-of-registers byte... two-byte-CRC-little-endian
-
-    0x10 writes data
-      FIXME - format
-
-*/
-
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -84,8 +29,6 @@
 #include <errno.h>
 
 #include "am2320.h"
-
-#define AM2321_ADDR 0x5C
 
 static uint16_t 
 calc_crc16(const uint8_t *buf, size_t len) {
@@ -121,7 +64,7 @@ am2320_open(unsigned i2c_device_no, am2320_t* out_fd) {
   if (fd < 0)
     return AM2320_ERR_OPEN;
 
-  if (ioctl(fd, I2C_SLAVE, AM2321_ADDR) < 0) {
+  if (ioctl(fd, I2C_SLAVE, AM2320_ADDRESS) < 0) {
     close(fd);
     return AM2320_ERR_INIT;
   }
