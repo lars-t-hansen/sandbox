@@ -137,16 +137,50 @@ am2320_close(am2320_t fd) {
 
 /* buf must be large enough to hold numregs bytes */
 static int
+wake_and_write(int fd, uint8_t firstreg, uint8_t numregs, uint8_t* buf) {
+
+  /* wake AM2320 up, goes to sleep to not warm up and affect the humidity sensor */
+  int iter = 0;
+ again:
+  write(fd, NULL, 0);
+  usleep(1000); /* at least 0.8ms, at most 3ms */
+  
+  /* Max 10 registers + prefix + crc */
+  uint8_t data[15];
+  data[0] = 0x10;
+  data[1] = firstreg;
+  data[2] = numregs;
+  memcpy(data+3, buf, numregs);
+  // FIXME
+  // CRC - not sure what we're computing across, if it's the entire buffer or not
+  uint16_t crcdata = calc_crc16(data, numregs + 2);
+  data[3+numregs] = crcdata;
+  data[4+numregs] = crcdata >> 8
+  if (write(fd, data, numregs+4) < 0) {
+    if (errno == EREMOTEIO && ++iter < 5) {
+      /* Assumes that no bytes were written / that writes are idempotent, which should be OK */
+      goto again;
+    }
+    return AM2320_ERR_WARMUP;
+  }
+
+  // TODO: There is a response which we should read and decode!
+
+  return AM2320_OK;
+}  
+
+/* buf must be large enough to hold numregs bytes */
+static int
 wake_and_read(int fd, uint8_t firstreg, uint8_t numregs, uint8_t* buf) {
 
   /* wake AM2320 up, goes to sleep to not warm up and affect the humidity sensor */
+  int iter = 0;
  again:
   write(fd, NULL, 0);
   usleep(1000); /* at least 0.8ms, at most 3ms */
   
   /* signal we want to read */
   uint8_t setup_buf[3] = {0x03, firstreg, numregs};
-  int iter = 0;
   if (write(fd, setup_buf, sizeof(setup_buf)) < 0) {
     if (errno == EREMOTEIO && ++iter < 5) {
       goto again;
@@ -162,8 +196,10 @@ wake_and_read(int fd, uint8_t firstreg, uint8_t numregs, uint8_t* buf) {
   if (read(fd, tmp, 4 + numregs) < 0)
     return AM2320_ERR_READ;
 
-  if (tmp[0] != 0x03 || tmp[1] != numregs)
+  if (tmp[0] != 0x03 || tmp[1] != numregs) {
+    // TODO: Decode error message
     return AM2320_ERR_PREFIX;
+  }
 
   /* Check CRC - in last two bytes, little-endian (weird but true) */
   uint16_t crcdata = calc_crc16(tmp, numregs + 2);
@@ -176,7 +212,7 @@ wake_and_read(int fd, uint8_t firstreg, uint8_t numregs, uint8_t* buf) {
 }
 
 int
-am2320_read_id(am2320_t fd, int* model, int* version, int* dev_id) {
+am2320_read_id(am2320_t fd, int* model, int* version, unsigned* dev_id) {
   int res;
   uint8_t data[7];
 
@@ -185,7 +221,7 @@ am2320_read_id(am2320_t fd, int* model, int* version, int* dev_id) {
 
   *model = combine_bytes(data[0], data[1]);
   *version = data[2];
-  *dev_id = ((int)data[3] << 24) | ((int)data[4] << 16) | ((int)data[5] << 8) | (int)data[6];
+  *dev_id = ((unsigned)data[3] << 24) | ((unsigned)data[4] << 16) | ((unsigned)data[5] << 8) | (unsigned)data[6];
 
   return AM2320_OK;
 }
@@ -221,3 +257,14 @@ am2320_read_sensors(am2320_t fd, float *out_temperature, float *out_humidity)
 
   return AM2320_OK;
 }
+
+int
+am2320_read_user(am2320_t dev, uint8_t start, uint8_t len, uint8_t* data) {
+  return wake_and_read(fd, 0x10 + start, len, data);
+}
+
+int
+am2320_write_user(am2320_t dev, uint8_t start, uint8_t len, uint8_t* data) {
+  return wake_and_write(fd, 0x10 + start, len, data);
+}
+

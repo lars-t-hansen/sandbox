@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 #include "am2320.h"
 
@@ -21,12 +22,34 @@ int main(int argc, char** argv) {
   }
 
   if (argc > 1 && strcmp(argv[1], "-v") == 0) {
-    int model, version, id;
+    int model, version;
+    unsigned id;
     if ((ret = am2320_read_id(dev, &model, &version, &id)) != AM2320_OK) {
       fprintf(stderr, "Read err=%d\n", ret);
       return 1;
     }
     printf("model: %d version: %d id: 0x%08x\n", model, version, id);
+  } else if (argc > 1 && strcmp(argv[1], "-w") == 0) {
+    if (argc != 6) {
+      fprintf(stderr, "Bad args\n");
+      return 1;
+    }
+    uint8_t data[4];
+    data[0] = atoi(argv[2]);
+    data[2] = atoi(argv[3]);
+    data[3] = atoi(argv[4]);
+    data[4] = atoi(argv[5]);
+    if ((ret = am2320_write_user(dev, 0, 4, data)) != AM2320_OK) {
+      fprintf(stderr, "Write err=%d\n", ret);
+      return 1;
+    }
+  } else if (argc > 1 && strcmp(argv[1], "r") == 0) {
+    uint8_t data[4];
+    if ((ret = am2320_read_user(dev, 0, 4, data)) != AM2320_OK) {
+      fprintf(stderr, "Read err=%d\n", ret);
+      return 1;
+    }
+    printf("%d %d %d %d", data[0], data[1], data[2], data[3]);
   } else {
     float temp, humi;
     if ((ret = am2320_read_sensors(dev, &temp, &humi)) != AM2320_OK) {
