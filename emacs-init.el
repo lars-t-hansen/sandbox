@@ -66,6 +66,13 @@
              (c-set-offset 'case-label '2)
 	     (c-set-offset 'statement-case-intro '2)))
 
+(add-hook 'go-mode-hook
+	  (lambda ()
+	    (set-variable 'fill-column 100)
+	    (set-variable 'indent-tabs-mode t)
+	    (set-variable 'show-trailing-whitespace t)
+	    (set-variable 'tab-width 4)))
+
 ;;(require 'lsp-mode)
 ;;(setq lsp-enable-snippet nil)
 
