@@ -2,7 +2,9 @@
 
 (if (or (< emacs-major-version 26)
 	(and (= emacs-major-version 26) (< emacs-minor-version 3)))
-    (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3"))
+    (progn
+      (message "Dropping TLS version b/c old emacs")
+      (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")))
 
 (package-initialize)
 (add-to-list 'package-archives
