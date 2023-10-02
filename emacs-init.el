@@ -1,8 +1,12 @@
+;; Workaround for package system on older emacsen, see https://stable.melpa.org/#/getting-started
+
+(if (or (< emacs-major-version 26)
+	(and (= emacs-major-version 26) (< emacs-minor-version 3)))
+    (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3"))
+
 (package-initialize)
 (add-to-list 'package-archives
              '("melpa-stable" . "https://stable.melpa.org/packages/") t)
-
-(put 'upcase-region 'disabled nil)
 
 (defun tool-bar-off ()
   (if (fboundp 'tool-bar-mode)
@@ -25,6 +29,8 @@
 (tool-bar-off)
 (scroll-bar-off)
 (menu-bar-off)
+
+(put 'upcase-region 'disabled nil)
 
 (setq auto-mode-alist
       (append '(("\\.cf\\'" . java-mode)
@@ -73,34 +79,39 @@
 	    (set-variable 'show-trailing-whitespace t)
 	    (set-variable 'tab-width 4)))
 
+(add-hook 'rust-mode-hook
+	  (lambda ()
+	    (setq fill-column 100)))
+
+(add-hook 'emacs-lisp-mode-hook
+	  (lambda ()
+	    (setq fill-column 100)))
+
 ;;(require 'lsp-mode)
 ;;(setq lsp-enable-snippet nil)
 
-;;(require 'rust-mode)
-;;(add-hook 'rust-mode-hook
-;;	  (lambda ()
-;;	    (set-variable 'fill-column 100)
-;;	    (lsp)))
-
-; Belt and suspenders on this one
+;; Disable vc integration for find-file, it's mostly annoying, especially in large repositories.  If
+;; memory serves, this got turned of for the Firefox source tree.
+;;
+;; Belt and suspenders on this one
 
 (eval-after-load "vc" '(remove-hook 'find-file-hooks 'vc-find-file-hook))
 (remove-hook 'find-file-hooks 'vc-find-file-hook)
 
-; Source grep
+;; Source grep
 
-; TODO: would be helpful for files to be sorted by basename first, extension last
-; TODO: should exclude misc benchmarking directories, notably octane (many false hits)
-; TODO: should exclude build directories
-; TODO: probably useful to have a 'cgrep' variant that excludes all js code
-; TODO: a variant 'dgrep' should take an identifier and try to find candidates
-;       for its definition.  This would have to be heuristic, and a number of
-;       the heuristics would be to reject candidates.
-; TODO: should maintain a separate window for each search term (*grep foo*, *grep bar*)
-;       to simplify recursive searches
-; TODO: when the buffer is *grep* we should really not fall back to the default,
-;       but should look in the first line to see if there's a directory there
-;       that matches our criteria.
+;; TODO: would be helpful for files to be sorted by basename first, extension last
+;; TODO: should exclude misc benchmarking directories, notably octane (many false hits)
+;; TODO: should exclude build directories
+;; TODO: probably useful to have a 'cgrep' variant that excludes all js code
+;; TODO: a variant 'dgrep' should take an identifier and try to find candidates
+;;       for its definition.  This would have to be heuristic, and a number of
+;;       the heuristics would be to reject candidates.
+;; TODO: should maintain a separate window for each search term (*grep foo*, *grep bar*)
+;;       to simplify recursive searches
+;; TODO: when the buffer is *grep* we should really not fall back to the default,
+;;       but should look in the first line to see if there's a directory there
+;;       that matches our criteria.
 
 (defvar *sgrep-default-dir* "/home/lhansen/m-i/js")
 (defvar *sgrep-files* "*.h *.c *.cpp *.js")
