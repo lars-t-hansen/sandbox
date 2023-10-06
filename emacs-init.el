@@ -6,9 +6,11 @@
       (message "Dropping TLS version b/c old emacs")
       (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")))
 
-(package-initialize)
+(require 'package)
+(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/"))
 (add-to-list 'package-archives
              '("melpa-stable" . "https://stable.melpa.org/packages/") t)
+(package-initialize)
 
 (defun tool-bar-off ()
   (if (fboundp 'tool-bar-mode)
@@ -34,11 +36,10 @@
 
 (put 'upcase-region 'disabled nil)
 
-(setq auto-mode-alist
-      (append '(("\\.cf\\'" . java-mode)
-		("\\.flat_js\\'" . javascript-mode)
-		("\\.ts\\'" . javascript-mode))
-	      auto-mode-alist))
+(push '("\\.cu\\'" . c++-mode) auto-mode-alist)
+;(push '("\\.cf\\'" . java-mode) auto-mode-alist)
+;(push '("\\.flat_js\\'" . javascript-mode) auto-mode-alist)
+;(push '("\\.ts\\'" . javascript-mode) auto-mode-alist)
 
 (defvar c-default-style
   '((c-mode . "stroustrup")
@@ -47,25 +48,25 @@
 
 (add-hook 'js-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 80)
+	    (set-variable 'fill-column 100)
 	    (set-variable 'indent-tabs-mode nil)
 	    (set-variable 'show-trailing-whitespace t)))
 
 (add-hook 'java-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 80)
+	    (set-variable 'fill-column 100)
 	    (set-variable 'indent-tabs-mode nil)
 	    (set-variable 'c-basic-offset 4)))
 
 (add-hook 'c-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 80)
+	    (set-variable 'fill-column 100)
 	    (set-variable 'indent-tabs-mode nil)
 	    (set-variable 'show-trailing-whitespace t)))
 
 (add-hook 'c++-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 80)
+	    (set-variable 'fill-column 100)
 	    (set-variable 'indent-tabs-mode nil)
 	    (set-variable 'show-trailing-whitespace t)))
 
@@ -83,9 +84,19 @@
 
 (add-hook 'rust-mode-hook
 	  (lambda ()
+	    (set-variable 'indent-tabs-mode nil)
+	    (set-variable 'show-trailing-whitespace t)
 	    (setq fill-column 100)))
 
 (add-hook 'emacs-lisp-mode-hook
+	  (lambda ()
+	    (setq fill-column 100)))
+
+(add-hook 'markdown-mode-hook
+	  (lambda ()
+	    (setq fill-column 100)))
+
+(add-hook 'sh-mode-hook
 	  (lambda ()
 	    (setq fill-column 100)))
 
