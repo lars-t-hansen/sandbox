@@ -46,29 +46,27 @@
     (c++-mode . "stroustrup")
     (java-mode . "java")))
 
+(defun standard-settings (tabs)
+  (set-variable 'fill-column 100)
+  (set-variable 'show-trailing-whitespace t)
+  (set-variable 'indent-tabs-mode tabs))
+
 (add-hook 'js-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 100)
-	    (set-variable 'indent-tabs-mode nil)
-	    (set-variable 'show-trailing-whitespace t)))
+	    (standard-settings nil)))
 
 (add-hook 'java-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 100)
-	    (set-variable 'indent-tabs-mode nil)
+	    (standard-settings nil)
 	    (set-variable 'c-basic-offset 4)))
 
 (add-hook 'c-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 100)
-	    (set-variable 'indent-tabs-mode nil)
-	    (set-variable 'show-trailing-whitespace t)))
+	    (standard-settings nil)))
 
 (add-hook 'c++-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 100)
-	    (set-variable 'indent-tabs-mode nil)
-	    (set-variable 'show-trailing-whitespace t)))
+	    (standard-settings nil)))
 
 (add-hook 'c-mode-common-hook
           (lambda ()
@@ -77,28 +75,24 @@
 
 (add-hook 'go-mode-hook
 	  (lambda ()
-	    (set-variable 'fill-column 100)
-	    (set-variable 'indent-tabs-mode t)
-	    (set-variable 'show-trailing-whitespace t)
+	    (standard-settings t)
 	    (set-variable 'tab-width 4)))
 
 (add-hook 'rust-mode-hook
 	  (lambda ()
-	    (set-variable 'indent-tabs-mode nil)
-	    (set-variable 'show-trailing-whitespace t)
-	    (setq fill-column 100)))
+	    (standard-settings nil)))
 
 (add-hook 'emacs-lisp-mode-hook
 	  (lambda ()
-	    (setq fill-column 100)))
+	    (standard-settings nil)))
 
 (add-hook 'markdown-mode-hook
 	  (lambda ()
-	    (setq fill-column 100)))
+	    (standard-settings nil)))
 
 (add-hook 'sh-mode-hook
 	  (lambda ()
-	    (setq fill-column 100)))
+	    (standard-settings nil)))
 
 ;;(require 'lsp-mode)
 ;;(setq lsp-enable-snippet nil)
