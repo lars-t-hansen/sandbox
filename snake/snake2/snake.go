@@ -146,7 +146,9 @@ EvLoop:
 		s.Show()
 		select {
 		case <-ticker.C:
-			tick()
+			if !dead {
+				tick()
+			}
 		case ev := <-evChan:
 			switch ev := ev.(type) {
 			case *tcell.EventResize:

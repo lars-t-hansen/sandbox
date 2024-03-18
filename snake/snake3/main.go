@@ -74,7 +74,7 @@ func (_ RealUi) notifyNewScore() {
 }
 
 func initScreen() {
-	scoreFile = path.Join(os.Getenv("HOME"), ".snake3")
+	scoreFile = path.Join(os.Getenv("HOME"), ".snake2") // [sic]
 	var err error
 	if s, err = tcell.NewScreen(); err != nil {
 		panic(err)
@@ -178,7 +178,9 @@ EvLoop:
 		s.Show()
 		select {
 		case <-ticker.C:
-			tick()
+			if !snake.dead {
+				tick()
+			}
 		case ev := <-evChan:
 			switch ev := ev.(type) {
 			case *tcell.EventResize:
