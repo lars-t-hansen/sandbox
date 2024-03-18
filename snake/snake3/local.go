@@ -12,15 +12,15 @@ func newLocalMover(s *Snake) *localMover {
 	return &localMover{s}
 }
 
-func (s *localMover) name() string {
+func (_ *localMover) name() string {
 	return "Local"
 }
 
 // Obvious first strategy is to "move towards the food but avoid bumping into things".
 
-func (s *localMover) autoMove() {
-	xDelta := s.s.xFood - s.s.xHead
-	yDelta := s.s.yFood - s.s.yHead
+func (lm *localMover) autoMove() {
+	xDelta := lm.s.xFood - lm.s.xHead
+	yDelta := lm.s.yFood - lm.s.yHead
 
 	// xDelta and yDelta will not both be zero because once we move onto the food the food moves
 	// 1. reduce delta-y to food if possible
@@ -63,18 +63,18 @@ func (s *localMover) autoMove() {
 
 	// Prefer to move in the direction we're moving in if that is sensible
 
-	if secondary != 0 && secondary == s.s.direction {
+	if secondary != 0 && secondary == lm.s.direction {
 		nextDirection, secondary = secondary, nextDirection
 	}
 
-	_ = s.tryMoves(nextDirection, secondary, rNormal) || s.tryMoves(nextDirection, secondary, rNone)
+	_ = lm.tryMoves(nextDirection, secondary, rNormal) || lm.tryMoves(nextDirection, secondary, rNone)
 }
 
-func (s *localMover) tryMoves(nextDirection, secondary uint8, rules int) bool {
-	return s.tryMove(nextDirection, rules) ||
-		(secondary != 0 && s.tryMove(secondary, rules)) ||
-		s.tryMove(s.s.direction, rules) ||
-		s.tryMoveRandom(rules)
+func (lm *localMover) tryMoves(nextDirection, secondary uint8, rules int) bool {
+	return lm.tryMove(nextDirection, rules) ||
+		(secondary != 0 && lm.tryMove(secondary, rules)) ||
+		lm.tryMove(lm.s.direction, rules) ||
+		lm.tryMoveRandom(rules)
 }
 
 const (
@@ -83,17 +83,17 @@ const (
 	rNone   = 0
 )
 
-func (s *localMover) tryMove(d uint8, rules int) bool {
+func (lm *localMover) tryMove(d uint8, rules int) bool {
 	// Eliminate illegal and bad moves
 
-	if d == oppositeOf[s.s.direction>>dirShift] {
+	if d == oppositeOf[lm.s.direction>>dirShift] {
 		return false
 	}
 
-	xNext := s.s.xHead + xDelta[d>>dirShift]
-	yNext := s.s.yHead + yDelta[d>>dirShift]
+	xNext := lm.s.xHead + xDelta[d>>dirShift]
+	yNext := lm.s.yHead + yDelta[d>>dirShift]
 
-	if s.blockedAt(xNext, yNext) {
+	if lm.blockedAt(xNext, yNext) {
 		return false
 	}
 
@@ -102,29 +102,29 @@ func (s *localMover) tryMove(d uint8, rules int) bool {
 
 	if (rules & rTunnel) != 0 {
 		if d == up || d == down {
-			if s.blockedAt(xNext-1, yNext) && s.blockedAt(xNext+1, yNext) {
+			if lm.blockedAt(xNext-1, yNext) && lm.blockedAt(xNext+1, yNext) {
 				return false
 			}
 		} else {
-			if s.blockedAt(xNext, yNext-1) && s.blockedAt(xNext, yNext+1) {
+			if lm.blockedAt(xNext, yNext-1) && lm.blockedAt(xNext, yNext+1) {
 				return false
 			}
 		}
 	}
 
-	s.s.direction = d
+	lm.s.direction = d
 	return true
 }
 
-func (s *localMover) blockedAt(x, y int) bool {
-	nextKind := s.s.at(x, y) & kindMask
+func (lm *localMover) blockedAt(x, y int) bool {
+	nextKind := lm.s.at(x, y) & kindMask
 	return nextKind == wall || nextKind == body
 }
 
-func (s *localMover) tryMoveRandom(rules int) bool {
+func (lm *localMover) tryMoveRandom(rules int) bool {
 	k := rand.Intn(4)
 	for i := range 4 {
-		if s.tryMove(oppositeOf[(i+k)%4], rules) {
+		if lm.tryMove(oppositeOf[(i+k)%4], rules) {
 			return true
 		}
 	}
