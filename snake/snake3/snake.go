@@ -28,7 +28,7 @@ type Ui interface {
 	// The snake has died.
 	notifyDead()
 
-	// The snake has eaten and its score has been upated.
+	// The snake has eaten and its score has been updated.
 	notifyNewScore()
 }
 
