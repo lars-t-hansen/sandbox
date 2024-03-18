@@ -5,10 +5,11 @@ import (
 )
 
 type localMover struct {
+	s *Snake
 }
 
-func newLocalMover() *localMover {
-	return &localMover {}
+func newLocalMover(s *Snake) *localMover {
+	return &localMover { s }
 }
 
 func (s *localMover) name() string {
@@ -18,8 +19,8 @@ func (s *localMover) name() string {
 // Obvious first strategy is to "move towards the food but avoid bumping into things".
 
 func (s *localMover) autoMove() {
-	xDelta := xFood - xHead
-	yDelta := yFood - yHead
+	xDelta := s.s.xFood - s.s.xHead
+	yDelta := s.s.yFood - s.s.yHead
 
 	// xDelta and yDelta will not both be zero because once we move onto the food the food moves
 	// 1. reduce delta-y to food if possible
@@ -62,7 +63,7 @@ func (s *localMover) autoMove() {
 
 	// Prefer to move in the direction we're moving in if that is sensible
 
-	if secondary != 0 && secondary == direction {
+	if secondary != 0 && secondary == s.s.direction {
 		nextDirection, secondary = secondary, nextDirection
 	}
 
@@ -72,7 +73,7 @@ func (s *localMover) autoMove() {
 func (s *localMover) tryMoves(nextDirection, secondary uint8, rules int) bool {
 	return s.tryMove(nextDirection, rules) ||
 		(secondary != 0 && s.tryMove(secondary, rules)) ||
-		s.tryMove(direction, rules) ||
+		s.tryMove(s.s.direction, rules) ||
 		s.tryMoveRandom(rules)
 }
 
@@ -85,12 +86,12 @@ const (
 func (s *localMover) tryMove(d uint8, rules int) bool {
 	// Eliminate illegal and bad moves
 
-	if d == oppositeOf[direction>>dirShift] {
+	if d == oppositeOf[s.s.direction>>dirShift] {
 		return false
 	}
 
-	xNext := xHead + xDelta[d>>dirShift]
-	yNext := yHead + yDelta[d>>dirShift]
+	xNext := s.s.xHead + xDelta[d>>dirShift]
+	yNext := s.s.yHead + yDelta[d>>dirShift]
 
 	if s.blockedAt(xNext, yNext) {
 		return false
@@ -111,12 +112,12 @@ func (s *localMover) tryMove(d uint8, rules int) bool {
 		}
 	}
 
-	direction = d
+	s.s.direction = d
 	return true
 }
 
 func (s *localMover) blockedAt(x, y int) bool {
-	nextKind := at(x, y) & kindMask
+	nextKind := s.s.at(x, y) & kindMask
 	return nextKind == wall || nextKind == body
 }
 
