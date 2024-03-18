@@ -65,20 +65,20 @@ var (
 // and written with at() and setAt().  Other variables should be considered read-only.
 
 type Snake struct {
-	width, height int	  // dimensions
+	width, height int     // dimensions
 	board         []uint8 // width * height
-	xHead, yHead  int	  // where the head's at
-	xTail, yTail  int	  // where the tail's at
-	xFood, yFood  int	  // where the food's at
-	deadline      int	  // how long before we grow without eating
-	savedDeadline int	  // the initializer for `deadline`
-	grow          int	  // if non-zero, we don't move the tail
-	direction     uint8	  // direction to move in
-	speed         int	  // this many moves per second
-	score         int	  // current score, updated before calling ui.notifyNewScore
-	dead          bool	  // set to true once dead, before calling ui.notifyDead
-	growAmount    int	  // how many segments to grow by when growing
-	ui            Ui	  // ui callbacks
+	xHead, yHead  int     // where the head's at
+	xTail, yTail  int     // where the tail's at
+	xFood, yFood  int     // where the food's at
+	deadline      int     // how long before we grow without eating
+	savedDeadline int     // the initializer for `deadline`
+	grow          int     // if non-zero, we don't move the tail
+	direction     uint8   // direction to move in
+	speed         int     // this many moves per second
+	score         int     // current score, updated before calling ui.notifyNewScore
+	dead          bool    // set to true once dead, before calling ui.notifyDead
+	growAmount    int     // how many segments to grow by when growing
+	ui            Ui      // ui callbacks
 }
 
 func newSnake(ui Ui) *Snake {
@@ -106,7 +106,7 @@ func (s *Snake) reset() {
 	s.xFood, s.yFood = 0, 0
 	s.growAmount = 5
 	s.grow = s.growAmount
-	s.savedDeadline = s.width*s.height
+	s.savedDeadline = s.width * s.height
 	s.deadline = s.savedDeadline
 	s.direction = right
 	s.speed = 8
@@ -190,7 +190,7 @@ func (s *Snake) placeFood() {
 		s.yFood = rand.Intn(s.height)
 		if s.at(s.xFood, s.yFood) == open {
 			s.setAt(s.xFood, s.yFood, food, dFood)
-			s.savedDeadline = (3 * (abs(s.xHead-s.xFood) + abs(s.yHead-s.yFood)))/ 2
+			s.savedDeadline = (3 * (abs(s.xHead-s.xFood) + abs(s.yHead-s.yFood))) / 2
 			s.deadline = s.savedDeadline
 			break
 		}
@@ -203,4 +203,3 @@ func abs(x int) int {
 	}
 	return x
 }
-

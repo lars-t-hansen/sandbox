@@ -40,11 +40,11 @@ type mover interface {
 }
 
 var (
-	s        tcell.Screen
-	defStyle tcell.Style
-	snake    *Snake
-	keys     *keyrec
-	scores   []Score
+	s         tcell.Screen
+	defStyle  tcell.Style
+	snake     *Snake
+	keys      *keyrec
+	scores    []Score
 	scoreFile string
 	automove  mover
 )

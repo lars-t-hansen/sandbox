@@ -96,7 +96,7 @@ type Score struct {
 }
 
 var (
-	scores []Score
+	scores    []Score
 	scoreFile = path.Join(os.Getenv("HOME"), ".snake2")
 )
 
@@ -115,7 +115,7 @@ func clearState(w, h int) {
 	xFood, yFood = 0, 0
 	growAmount = 5
 	grow = growAmount
-	savedDeadline = width*height
+	savedDeadline = width * height
 	deadline = savedDeadline
 	direction = right
 	speed = 8
@@ -328,7 +328,7 @@ func placeFood() {
 		yFood = rand.Intn(height)
 		if at(xFood, yFood) == open {
 			setAt(xFood, yFood, food, dFood)
-			savedDeadline = (3 * (abs(xHead-xFood) + abs(yHead-yFood)))/ 2
+			savedDeadline = (3 * (abs(xHead-xFood) + abs(yHead-yFood))) / 2
 			deadline = savedDeadline
 			break
 		}

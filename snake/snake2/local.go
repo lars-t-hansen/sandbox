@@ -8,7 +8,7 @@ type localMover struct {
 }
 
 func newLocalMover() *localMover {
-	return &localMover {}
+	return &localMover{}
 }
 
 func (s *localMover) name() string {
@@ -79,7 +79,7 @@ func (s *localMover) tryMoves(nextDirection, secondary uint8, rules int) bool {
 const (
 	rTunnel = 1
 	rNormal = rTunnel
-	rNone = 0
+	rNone   = 0
 )
 
 func (s *localMover) tryMove(d uint8, rules int) bool {
@@ -123,10 +123,9 @@ func (s *localMover) blockedAt(x, y int) bool {
 func (s *localMover) tryMoveRandom(rules int) bool {
 	k := rand.Intn(4)
 	for i := range 4 {
-		if s.tryMove(oppositeOf[(i + k) % 4], rules) {
+		if s.tryMove(oppositeOf[(i+k)%4], rules) {
 			return true
 		}
 	}
 	return false
 }
-
