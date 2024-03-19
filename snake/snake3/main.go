@@ -154,16 +154,18 @@ func tick() {
 }
 
 func main() {
-	var autoplay bool
-	flag.BoolVar(&autoplay, "a", false, "Autoplay \"local\" strategy")
+	autoplay := flag.Bool("l", false, "Autoplay \"local\" strategy")
+	search := flag.Bool("s", false, "Autoplay \"search\" strategy")
 	flag.Parse()
 
 	snake = newSnake(RealUi(0))
 	initScreen()
 	defer s.Fini()
 
-	if autoplay {
+	if *autoplay {
 		automove = newLocalMover(snake)
+	} else if *search {
+		automove = newSearchMover(snake)
 	}
 
 	snake.reset()
