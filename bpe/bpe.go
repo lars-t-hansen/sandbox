@@ -14,6 +14,7 @@ import (
 var alphaSize = flag.Uint("a", 1024, "Alphabet has `num-codes` elements")
 
 func main() {
+	// TODO: Better usage message, with file arguments
 	flag.Parse()
 	// This is sort of wrong, the limit is no more than the number of distinct codes in the input.
 	// At the same time, by having all bytes map to themselves it's possible to apply a pre-trained
@@ -40,6 +41,16 @@ func main() {
 	for i, c := range inputBytes {
 		input[i] = uint16(c)
 	}
+
+	// This is extremely naive.
+	//
+	// Clearly, much of the table is unchanged between iterations: Any pair not using the chosen two symbols will
+	// be unchanged.
+	//
+	// The table capacity can be set to be the number of input bytes.
+	//
+	// If we do a single scan ahead of time, and then during the compression scan we keep track of
+	// the spots we compress, then we can update a lot incrementally?
 
 	table := make(map[uint32]int)
 	nextSym := 256
