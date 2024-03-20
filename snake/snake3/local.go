@@ -1,9 +1,5 @@
 package main
 
-import (
-	"math/rand"
-)
-
 type localMover struct {
 	s *Snake
 }
@@ -74,7 +70,7 @@ func (lm *localMover) tryMoves(nextDirection, secondary uint8, rules int) bool {
 	return lm.tryMove(nextDirection, rules) ||
 		(secondary != 0 && lm.tryMove(secondary, rules)) ||
 		lm.tryMove(lm.s.direction, rules) ||
-		lm.tryMoveRandom(rules)
+		lm.tryMoveAnywhere(rules)
 }
 
 const (
@@ -121,10 +117,12 @@ func (lm *localMover) blockedAt(x, y int) bool {
 	return nextKind == wall || nextKind == body
 }
 
-func (lm *localMover) tryMoveRandom(rules int) bool {
-	k := rand.Intn(4)
+// This uses the same schedule every time in order to be deterministic.  (snake1 and snake2 start at
+// a random spot in 0..3.)
+
+func (lm *localMover) tryMoveAnywhere(rules int) bool {
 	for i := range 4 {
-		if lm.tryMove(oppositeOf[(i+k)%4], rules) {
+		if lm.tryMove(oppositeOf[i], rules) {
 			return true
 		}
 	}

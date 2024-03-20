@@ -13,13 +13,14 @@
 //
 // The problem is what to do when we reach the food.  Ideally we keep playing until K is exhausted
 // to make sure we don't get stuck after.  But this presupposes a goal to move towards - a new place
-// where food is.  We can't predict that.  But if we're just trying to make sure that we don't get
-// stuck then anyplace is fine for food, just make sure we don't get a point when we get to the fake
-// food.  So pick a random spot.  Or always have a fixed spot for it, or a predictable sequence of them?
+// where food is, or at least a new place that is our target.  We can't predict where the next food
+// will be.  But if we're just trying to make sure that we don't get stuck then any place is fine as
+// a target, just make sure we don't score a point when we get to the fake food.  So we can pick a
+// random spot, or always have a fixed spot for it, or a predictable sequence of them.
 //
-// In general, the local strategy we use for this must avoid randomness.  So the "pick a random
-// direction" should probably follow a fixed schedule, because, why not?  What did randomness ever
-// do for us, except help us half the time and hurt us the other half?
+// In general, the local strategy we use for this should avoid randomness, or the search result may
+// easily become invalid when we actually execute moves.  We could fix that by storing a "plan" to
+// follow but that's for later.
 
 package main
 
