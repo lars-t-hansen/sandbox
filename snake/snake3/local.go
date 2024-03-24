@@ -1,11 +1,15 @@
 package main
 
-type localMover struct {
+type localMover struct /* implements mover */ {
 	s *Snake
+	clever bool
 }
 
-func newLocalMover(s *Snake) *localMover {
-	return &localMover{s}
+// If "clever" is true then some heuristics are used to avoid possibly bad situations, these are not
+// desirable if the local mover is used for search, however.
+
+func newLocalMover(s *Snake, clever bool) *localMover {
+	return &localMover{s, clever}
 }
 
 func (_ *localMover) name() string {
@@ -63,7 +67,11 @@ func (lm *localMover) autoMove() {
 		nextDirection, secondary = secondary, nextDirection
 	}
 
-	_ = lm.tryMoves(nextDirection, secondary, rNormal) || lm.tryMoves(nextDirection, secondary, rNone)
+	if lm.clever {
+		_ = lm.tryMoves(nextDirection, secondary, rNormal) || lm.tryMoves(nextDirection, secondary, rNone)
+	} else {
+		_ = lm.tryMoves(nextDirection, secondary, rNone)
+	}
 }
 
 func (lm *localMover) tryMoves(nextDirection, secondary uint8, rules int) bool {

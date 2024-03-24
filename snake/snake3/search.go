@@ -22,9 +22,40 @@
 // easily become invalid when we actually execute moves.  We could fix that by storing a "plan" to
 // follow but that's for later.
 
+// It's possible K should be larger - manhattan distance to food * 1.5 would make a lot of sense.  But
+// then we may be taking too long.
+
+// It's possible that *after eating* we allow for a long search to make sure we don't get stuck.  And
+// that we should be exploring paths partly DFS, partly BFS.  Consider: generate some initial moves I1, ..., In.
+// For each, search 10 steps ahead (whatever).  This will cull some moves.  If we don't find food, we still
+// have no more than n locations.  Now search another 10 steps from each of those.  And so on.  Then after finding food,
+// probe deeply to make sure there's not a trap.
+
+// If we find food we could record the moves and just perform them, esp if finding food triggers a
+// guard against getting stuck....
+
 package main
 
-func newSearchMover(s *Snake) mover {
-	// FIXME
-	return &localMover{s}
+import "fmt"
+
+const (
+	initialMoves = 1			// N
+	depth = 100					// K
+)
+
+type searchMover struct /* implements mover */ {
+	s *Snake
 }
+
+func newSearchMover(s *Snake) mover {
+	return &searchMover{s}
+}
+
+func (_ *searchMover) name() string {
+	return fmt.Sprintf("Search(%d,%d)", initialMoves, depth)
+}
+
+func (sm *searchMover) autoMove() {
+	newLocalMover(sm.s, true).autoMove()
+}
+

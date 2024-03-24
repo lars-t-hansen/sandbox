@@ -163,7 +163,7 @@ func main() {
 	defer s.Fini()
 
 	if *autoplay {
-		automove = newLocalMover(snake)
+		automove = newLocalMover(snake, true)
 	} else if *search {
 		automove = newSearchMover(snake)
 	}

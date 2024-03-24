@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 )
 
 // The snake's view of the UI: visual representation (a little leaky) and simple callback interface.
@@ -85,6 +86,14 @@ func newSnake(ui Ui) *Snake {
 	var s Snake
 	s.ui = ui
 	return &s
+}
+
+func (s *Snake) clone(ui Ui) *Snake {
+	var t Snake
+	t = *s
+	t.ui = ui
+	t.board = slices.Clone(s.board)
+	return &t
 }
 
 func (s *Snake) reset() {
