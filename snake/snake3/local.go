@@ -129,7 +129,7 @@ func (lm *localMover) blockedAt(x, y int) bool {
 // a random spot in 0..3.)
 
 func (lm *localMover) tryMoveAnywhere(rules int) bool {
-	for i := range 4 {
+	for i := 0 ; i < 4 ; i++ {
 		if lm.tryMove(oppositeOf[i], rules) {
 			return true
 		}

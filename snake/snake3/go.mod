@@ -1,6 +1,6 @@
 module snake
 
-go 1.22.0
+go 1.21.8
 
 require (
 	github.com/gdamore/tcell/v2 v2.7.1

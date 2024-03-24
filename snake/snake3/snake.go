@@ -48,6 +48,8 @@ const (
 )
 
 const (
+	// This order is encoded in the arrays below but is also used by other code, do not change it.
+	// The encoding is also part of the public API.
 	up = body | (iota << dirShift)
 	down
 	left
@@ -55,26 +57,28 @@ const (
 )
 
 var (
-	// These "constants" are indexed by high bits of up/down/left/right
+	// These "constants" are indexed by high bits of up/down/left/right.
 	xDelta     = []int{0, 0, -1, 1}
 	yDelta     = []int{-1, 1, 0, 0}
 	oppositeOf = []uint8{down, up, right, left}
 )
 
 // The UI logic creates a new snake with this newSnake(), then when it's ready to use it calls
-// reset() on it, and when it has updated `direction` it calls move().  Board locations can be read
-// and written with at() and setAt().  Other variables should be considered read-only.
+// reset() on it.  Board locations can be read and written with at() and setAt().  Other variables
+// should be considered read-only.
+//
+// To move the snake, set `direction` and call move().
 
 type Snake struct {
 	width, height int     // dimensions
-	board         []uint8 // width * height
+	board         []uint8 // width * height: open, food, wall, up, down, left, right, body
 	xHead, yHead  int     // where the head's at
 	xTail, yTail  int     // where the tail's at
 	xFood, yFood  int     // where the food's at
 	deadline      int     // how long before we grow without eating
 	savedDeadline int     // the initializer for `deadline`
 	grow          int     // if non-zero, we don't move the tail
-	direction     uint8   // direction to move in
+	direction     uint8   // direction to move in: up, down, left, right
 	speed         int     // this many moves per second
 	score         int     // current score, updated before calling ui.notifyNewScore
 	dead          bool    // set to true once dead, before calling ui.notifyDead
@@ -122,11 +126,11 @@ func (s *Snake) reset() {
 	s.score = 0
 	s.dead = false
 
-	for x := range s.width {
+	for x := 0 ; x < s.width ; x++ {
 		s.setAt(x, 0, wall, dHoriz)
 		s.setAt(x, s.height-1, wall, dHoriz)
 	}
-	for y := range s.height {
+	for y := 0 ; y < s.height ; y++ {
 		s.setAt(0, y, wall, dVert)
 		s.setAt(s.width-1, y, wall, dVert)
 	}
@@ -204,11 +208,4 @@ func (s *Snake) placeFood() {
 			break
 		}
 	}
-}
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }

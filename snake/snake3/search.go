@@ -40,7 +40,7 @@ import "fmt"
 
 const (
 	initialMoves = 1			// N
-	depth = 100					// K
+	depth = 200					// K
 )
 
 type searchMover struct /* implements mover */ {
@@ -55,7 +55,124 @@ func (_ *searchMover) name() string {
 	return fmt.Sprintf("Search(%d,%d)", initialMoves, depth)
 }
 
-func (sm *searchMover) autoMove() {
-	newLocalMover(sm.s, true).autoMove()
+type simUi struct {
+	dead, eaten bool
 }
 
+func (s *simUi) clear() (width, height int) {
+	panic("clear() should not be called")
+}
+
+func (s *simUi) drawAt(x, y int, c rune) {}
+
+func (s *simUi) notifyDead() {
+	s.dead = true
+}
+
+func (s *simUi) notifyNewScore() {
+	s.eaten = true
+}
+
+func (sm *searchMover) autoMove() {
+	type probe struct {
+		direction uint8
+		moves     int
+		ui        *simUi
+		mover     *localMover
+	}
+
+	// Generate some legal initial positions.
+	probers := make([]*probe, 0)
+	for _, m := range generateMoves(sm.s) {
+		ui := new(simUi)
+		s2 := sm.s.clone(ui)
+		s2.direction = m
+		s2.move()
+		probers = append(probers, &probe{m, 0, ui, newLocalMover(s2, false)})
+	}
+
+	// Evaluate those positions.
+	//
+	// From each legal initial position, automove until dead or eaten or exhausted.  Then prioritize:
+	// - moves that find food
+	// - otherwise, moves that bring us closer to food
+	// - and on ties, shorter move sequences over longer
+	//
+	// For hopeless positions (all initial moves lead to death, following the normal strategy) we
+	// choose the longest move sequence in the hope that some better plan will be found along the
+	// way.  Not sure yet if that matters.
+	//
+	// It's possible that minimizing # of moves is more important than getting close to food, but
+	// they are probably closely related anyway.
+
+	var best *probe
+	var bestDead *probe
+	var bestAte bool
+	var xFood = sm.s.xFood
+	var yFood = sm.s.yFood
+	for _, p := range probers {
+		for remaining := depth; remaining > 0 && !p.ui.dead && !p.ui.eaten; remaining-- {
+			p.mover.autoMove()
+			p.mover.s.move()
+			p.moves++
+		}
+
+		if p.ui.eaten {
+			if !bestAte {
+				best = p
+			} else {
+				// Pick the one that gets us closer, and optimize for # of moves on ties
+				bestDist := abs(best.mover.s.xHead-xFood) + abs(best.mover.s.yHead-yFood)
+				dist := abs(p.mover.s.xHead-xFood) + abs(p.mover.s.yHead-yFood)
+				if dist < bestDist {
+					best = p
+				} else if dist == bestDist && p.moves < best.moves {
+					best = p
+				}
+			}
+			bestAte = true
+		}
+
+		if !bestAte {
+			if p.ui.dead {
+				if bestDead == nil {
+					bestDead = p
+				} else if p.moves > bestDead.moves {
+					bestDead = p
+				}
+			} else if best == nil {
+				best = p
+			} else {
+				// Pick the one that gets us closer, and optimize for # of moves on ties
+				bestDist := abs(best.mover.s.xHead-xFood) + abs(best.mover.s.yHead-yFood)
+				dist := abs(p.mover.s.xHead-xFood) + abs(p.mover.s.yHead-yFood)
+				if dist < bestDist {
+					best = p
+				} else if dist == bestDist && p.moves < best.moves {
+					best = p
+				}
+			}
+		}
+	}
+	if best == nil {
+		best = bestDead
+	}
+	if best != nil {
+		sm.s.direction = best.direction
+	}
+}
+
+// The return value is a list of directions.  The snake is not updated.  If a move takes us to food
+// it is first in the list.
+func generateMoves(s *Snake) []uint8 {
+	moves := make([]uint8, 0)
+	for i := uint8(0) ; i < 4 ; i++ {
+		switch s.at(s.xHead + xDelta[i], s.yHead + yDelta[i]) {
+		case open:
+			moves = append(moves, body | (i << dirShift))
+		case food:
+			moves = append([]uint8{body | (i << dirShift)}, moves...)
+		}
+	}
+	return moves
+}

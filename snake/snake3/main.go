@@ -34,6 +34,9 @@ type Score struct {
 	Score int    `json:"score"`
 }
 
+// autoMove() sets 'direction' on its embedded snake so that the next time the snake moves it will
+// move to the desired spot.
+
 type mover interface {
 	autoMove()
 	name() string
@@ -210,4 +213,11 @@ EvLoop:
 	}
 	close(quitChan)
 	ticker.Stop()
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
