@@ -25,11 +25,12 @@
 // It's possible K should be larger - manhattan distance to food * 1.5 would make a lot of sense.  But
 // then we may be taking too long.
 
-// It's possible that *after eating* we allow for a long search to make sure we don't get stuck.  And
-// that we should be exploring paths partly DFS, partly BFS.  Consider: generate some initial moves I1, ..., In.
-// For each, search 10 steps ahead (whatever).  This will cull some moves.  If we don't find food, we still
-// have no more than n locations.  Now search another 10 steps from each of those.  And so on.  Then after finding food,
-// probe deeply to make sure there's not a trap.
+// It's possible that *after eating* we allow for a long search to make sure we don't get stuck.
+// And that we should be exploring paths partly DFS, partly BFS.  Consider: generate some initial
+// moves I1, ..., In.  For each, search 10 steps ahead (whatever).  This will cull some moves.  If
+// we don't find food, we still have no more than n locations.  Now search another 10 steps from
+// each of those.  And so on.  Then after finding food, probe deeply to make sure there's not a
+// trap.
 
 // If we find food we could record the moves and just perform them, esp if finding food triggers a
 // guard against getting stuck....
@@ -82,6 +83,7 @@ func (sm *searchMover) autoMove() {
 	}
 
 	// Generate some legal initial positions.
+
 	probers := make([]*probe, 0)
 	for _, m := range generateMoves(sm.s) {
 		ui := new(simUi)
@@ -154,9 +156,14 @@ func (sm *searchMover) autoMove() {
 			}
 		}
 	}
+
+	// If no sensible move then pick the most honorable death.
 	if best == nil {
 		best = bestDead
 	}
+
+	// Make the move.  If we're stuck at the bottom of a cul-de-sac there will be no initial moves
+	// and hence no final moves to make, just keep going (and die).
 	if best != nil {
 		sm.s.direction = best.direction
 	}
