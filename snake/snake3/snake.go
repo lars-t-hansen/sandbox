@@ -203,9 +203,33 @@ func (s *Snake) placeFood() {
 		s.yFood = rand.Intn(s.height)
 		if s.at(s.xFood, s.yFood) == open {
 			s.setAt(s.xFood, s.yFood, food, dFood)
-			s.savedDeadline = (3 * (abs(s.xHead-s.xFood) + abs(s.yHead-s.yFood))) / 2
+			s.savedDeadline = (3 * distance(s.xHead, s.yHead, s.xFood, s.yFood)) / 2
 			s.deadline = s.savedDeadline
 			break
 		}
 	}
+}
+
+// Generate all possible single moves form the current position.  The return value is a list of
+// direction, x, y triplets.  The snake is not updated.  If a move takes us to food it is first in the list.
+
+type move struct {
+	direction uint8
+	x, y int
+}
+
+func (s *Snake) generateSingleMoves() []move {
+	moves := make([]move, 0)
+	for i := uint8(0) ; i < 4 ; i++ {
+		nx := s.xHead + xDelta[i]
+		ny := s.yHead + yDelta[i]
+		d := body | (i << dirShift)
+		switch s.at(nx, ny) {
+		case open:
+			moves = append(moves, move{d, nx, ny} )
+		case food:
+			moves = append([]move{move{d, nx, ny}}, moves...)
+		}
+	}
+	return moves
 }

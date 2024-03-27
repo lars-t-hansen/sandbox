@@ -157,7 +157,8 @@ func tick() {
 }
 
 func main() {
-	autoplay := flag.Bool("l", false, "Autoplay \"local\" strategy")
+	greedy := flag.Bool("g", false, "Autoplay \"greedy\" strategy")
+	local := flag.Bool("l", false, "Autoplay \"local\" strategy")
 	search := flag.Bool("s", false, "Autoplay \"search\" strategy")
 	flag.Parse()
 
@@ -165,7 +166,9 @@ func main() {
 	initScreen()
 	defer s.Fini()
 
-	if *autoplay {
+	if *greedy {
+		automove = newGreedyMover(snake)
+	} else if *local {
 		automove = newLocalMover(snake, true)
 	} else if *search {
 		automove = newSearchMover(snake)
@@ -213,6 +216,11 @@ EvLoop:
 	}
 	close(quitChan)
 	ticker.Stop()
+}
+
+// Manhattan distance from (x1, y1) to (x2, y2)
+func distance(x1, y1, x2, y2 int) int {
+	return abs(x1 - x2) + abs(y1 - y2)
 }
 
 func abs(x int) int {
