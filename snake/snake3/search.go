@@ -1,7 +1,7 @@
 // A mover that searches a little.
 //
 // Basic approach: Generate all possible move sequences of length up to N (N very short, say, <= 3)
-// from the current position, then starting in the final position of that sequence play the local
+// from the current position, then starting in the final position of that sequence play the greedy
 // strategy for K moves (K larger, say, 100) or until we're stuck or food is found.  We score:
 // finding food is 1 point, getting stuck is -2 points, just farting around is 0 points.  Then pick
 // the initial move sequence that has the highest payoff (or one of them, and we can stop once we've
@@ -9,7 +9,7 @@
 // sequences apart).  (Or can we?  Number of moves as a tie breaker?)
 //
 // There could be some penalty for "being in a tunnel" when we finish the K moves.  (Another tie
-// breaker?) But there is no reason per se to have tunnel avoidance as part of the local strategy?
+// breaker?) But there is no reason per se to have tunnel avoidance as part of the greedy strategy?
 //
 // The problem is what to do when we reach the food.  Ideally we keep playing until K is exhausted
 // to make sure we don't get stuck after.  But this presupposes a goal to move towards - a new place
@@ -18,7 +18,7 @@
 // a target, just make sure we don't score a point when we get to the fake food.  So we can pick a
 // random spot, or always have a fixed spot for it, or a predictable sequence of them.
 //
-// In general, the local strategy we use for this should avoid randomness, or the search result may
+// In general, the greedy strategy we use for this should avoid randomness, or the search result may
 // easily become invalid when we actually execute moves.  We could fix that by storing a "plan" to
 // follow but that's for later.
 
@@ -79,18 +79,19 @@ func (sm *searchMover) autoMove() {
 		direction uint8
 		moves     int
 		ui        *simUi
-		mover     *localMover
+		s         *Snake
+		mover     mover
 	}
 
 	// Generate some legal initial positions.
 
 	probers := make([]*probe, 0)
-	for _, m := range generateMoves(sm.s) {
+	for _, m := range sm.s.generateSingleMoves() {
 		ui := new(simUi)
 		s2 := sm.s.clone(ui)
-		s2.direction = m
+		s2.direction = m.direction
 		s2.move()
-		probers = append(probers, &probe{m, 0, ui, newLocalMover(s2, false)})
+		probers = append(probers, &probe{m.direction, 0, ui, s2, newGreedyMover(s2) /*newLocalMover(s2, false)*/})
 	}
 
 	// Evaluate those positions.
@@ -115,7 +116,7 @@ func (sm *searchMover) autoMove() {
 	for _, p := range probers {
 		for remaining := depth; remaining > 0 && !p.ui.dead && !p.ui.fed; remaining-- {
 			p.mover.autoMove()
-			p.mover.s.move()
+			p.s.move()
 			p.moves++
 		}
 
@@ -124,8 +125,8 @@ func (sm *searchMover) autoMove() {
 				best = p
 			} else {
 				// Pick the one that gets us closer, and optimize for # of moves on ties
-				bestDist := abs(best.mover.s.xHead-xFood) + abs(best.mover.s.yHead-yFood)
-				dist := abs(p.mover.s.xHead-xFood) + abs(p.mover.s.yHead-yFood)
+				bestDist := distance(best.s.xHead, best.s.yHead, xFood, yFood)
+				dist := distance(p.s.xHead, p.s.yHead, xFood, yFood)
 				if dist < bestDist {
 					best = p
 				} else if dist == bestDist && p.moves < best.moves {
@@ -146,8 +147,8 @@ func (sm *searchMover) autoMove() {
 				best = p
 			} else {
 				// Pick the one that gets us closer, and optimize for # of moves on ties
-				bestDist := abs(best.mover.s.xHead-xFood) + abs(best.mover.s.yHead-yFood)
-				dist := abs(p.mover.s.xHead-xFood) + abs(p.mover.s.yHead-yFood)
+				bestDist := distance(best.s.xHead, best.s.yHead, xFood, yFood)
+				dist := distance(p.s.xHead, p.s.yHead, xFood, yFood)
 				if dist < bestDist {
 					best = p
 				} else if dist == bestDist && p.moves < best.moves {
@@ -167,19 +168,4 @@ func (sm *searchMover) autoMove() {
 	if best != nil {
 		sm.s.direction = best.direction
 	}
-}
-
-// The return value is a list of directions.  The snake is not updated.  If a move takes us to food
-// it is first in the list.
-func generateMoves(s *Snake) []uint8 {
-	moves := make([]uint8, 0)
-	for i := uint8(0) ; i < 4 ; i++ {
-		switch s.at(s.xHead + xDelta[i], s.yHead + yDelta[i]) {
-		case open:
-			moves = append(moves, body | (i << dirShift))
-		case food:
-			moves = append([]uint8{body | (i << dirShift)}, moves...)
-		}
-	}
-	return moves
 }
