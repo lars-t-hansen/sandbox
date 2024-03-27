@@ -57,7 +57,7 @@ func (_ *searchMover) name() string {
 }
 
 type simUi struct {
-	dead, eaten bool
+	dead, fed bool
 }
 
 func (s *simUi) clear() (width, height int) {
@@ -71,7 +71,7 @@ func (s *simUi) notifyDead() {
 }
 
 func (s *simUi) notifyNewScore() {
-	s.eaten = true
+	s.fed = true
 }
 
 func (sm *searchMover) autoMove() {
@@ -95,7 +95,7 @@ func (sm *searchMover) autoMove() {
 
 	// Evaluate those positions.
 	//
-	// From each legal initial position, automove until dead or eaten or exhausted.  Then prioritize:
+	// From each legal initial position, automove until dead or fed or exhausted.  Then prioritize:
 	// - moves that find food
 	// - otherwise, moves that bring us closer to food
 	// - and on ties, shorter move sequences over longer
@@ -113,13 +113,13 @@ func (sm *searchMover) autoMove() {
 	var xFood = sm.s.xFood
 	var yFood = sm.s.yFood
 	for _, p := range probers {
-		for remaining := depth; remaining > 0 && !p.ui.dead && !p.ui.eaten; remaining-- {
+		for remaining := depth; remaining > 0 && !p.ui.dead && !p.ui.fed; remaining-- {
 			p.mover.autoMove()
 			p.mover.s.move()
 			p.moves++
 		}
 
-		if p.ui.eaten {
+		if p.ui.fed {
 			if !bestAte {
 				best = p
 			} else {
