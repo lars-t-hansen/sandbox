@@ -220,15 +220,17 @@ type move struct {
 
 func (s *Snake) generateSingleMoves() []move {
 	moves := make([]move, 0)
-	for i := uint8(0) ; i < 4 ; i++ {
-		nx := s.xHead + xDelta[i]
-		ny := s.yHead + yDelta[i]
-		d := body | (i << dirShift)
-		switch s.at(nx, ny) {
-		case open:
-			moves = append(moves, move{d, nx, ny} )
-		case food:
-			moves = append([]move{move{d, nx, ny}}, moves...)
+	if !s.dead {
+		for i := uint8(0) ; i < 4 ; i++ {
+			nx := s.xHead + xDelta[i]
+			ny := s.yHead + yDelta[i]
+			d := body | (i << dirShift)
+			switch s.at(nx, ny) {
+			case open:
+				moves = append(moves, move{d, nx, ny} )
+			case food:
+				moves = append([]move{move{d, nx, ny}}, moves...)
+			}
 		}
 	}
 	return moves
