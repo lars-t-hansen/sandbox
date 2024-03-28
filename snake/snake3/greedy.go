@@ -19,9 +19,9 @@ func (gm *greedyMover) autoMove() {
 	// Generate all legal single moves (which are directions from the head).
 	moves := gm.s.generateSingleMoves()
 
-	// Move A is preferred over move B if, following the move, the manhattan distance from location
-	// loc(A) to food is shorter than from loc(B) to food.  On ties, prefer A over B if A is the
-	// same direction as the current direction.
+	// Move A is preferred over move B if, following the move, the distance from location loc(A) to
+	// food is shorter than from loc(B) to food.  On ties, prefer A over B if A is the same
+	// direction as the current direction.
 	for i := 0 ; i < len(moves)-1 ; i++ {
 		for j := i+1 ; j < len(moves) ; j++ {
 			mi := moves[i]

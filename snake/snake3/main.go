@@ -157,9 +157,10 @@ func tick() {
 }
 
 func main() {
-	greedy := flag.Bool("g", false, "Autoplay \"greedy\" strategy")
-	local := flag.Bool("l", false, "Autoplay \"local\" strategy")
-	search := flag.Bool("s", false, "Autoplay \"search\" strategy")
+	greedy := flag.Bool("greedy", false, "Autoplay \"greedy\" strategy")
+	local := flag.Bool("local", false, "Autoplay \"local\" strategy")
+	local2 := flag.Bool("local2", false, "Autoplay \"local2\" strategy")
+	search := flag.Bool("search", false, "Autoplay \"search\" strategy")
 	flag.Parse()
 
 	snake = newSnake(RealUi(0))
@@ -170,6 +171,8 @@ func main() {
 		automove = newGreedyMover(snake)
 	} else if *local {
 		automove = newLocalMover(snake, true)
+	} else if *local2 {
+		automove = newLocal2Mover(snake)
 	} else if *search {
 		automove = newSearchMover(snake)
 	}

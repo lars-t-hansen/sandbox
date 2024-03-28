@@ -1,3 +1,7 @@
+// This is the original "local" strategy: "move towards the food but avoid bumping into things and
+// do not go into a dark alley".  The implementation is cumbersome and does not properly prioritize
+// possible moves.  See local2.go for a more rigorous take.
+
 package main
 
 type localMover struct /* implements mover */ {
@@ -15,8 +19,6 @@ func newLocalMover(s *Snake, clever bool) *localMover {
 func (_ *localMover) name() string {
 	return "Local"
 }
-
-// Obvious first strategy is to "move towards the food but avoid bumping into things".
 
 func (lm *localMover) autoMove() {
 	xDelta := lm.s.xFood - lm.s.xHead
