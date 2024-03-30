@@ -33,9 +33,10 @@ func (lm *local2Mover) autoMove() {
 	// Move A to loc(A) is preferred over move B to loc(B) if, following the move,
 	//  - distance(loc(A), food) == 0, or else
 	//  - loc(A) does not have a forced move but loc(B) does, or else
-	//  - loc(A) has no moves but loc(B) does, or else
-	//  - distance(loc(A), food) < distance(loc(B), food).
-	//  - On ties, prefer A over B if A is the same direction as the current direction.
+	//  - loc(A) has a move but loc(B) does not, or else
+	//  - distance(loc(A), food) < distance(loc(B), food), or else
+	//  - distance(loc(A), food) == distance(loc(B), food) and A is the same direction as
+	//    the current direction.
 	for i := 0 ; i < len(moves)-1 ; i++ {
 		for j := i+1 ; j < len(moves) ; j++ {
 			mi := moves[i]
@@ -47,7 +48,7 @@ func (lm *local2Mover) autoMove() {
 				swap = dj == 0
 			} else if (mi.possible > 1) != (mj.possible > 1) {
 				swap = mj.possible > 1
-			} else if (mi.possible == 0) != (mj.possible == 0) {
+			} else if (mi.possible > 0) != (mj.possible > 0) {
 				swap = mj.possible > 0
 			} else if di == dj {
 				if mj.direction[0] == lm.s.direction {
