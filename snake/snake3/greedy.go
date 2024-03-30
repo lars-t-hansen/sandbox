@@ -17,7 +17,7 @@ func (_ *greedyMover) name() string {
 
 func (gm *greedyMover) autoMove() {
 	// Generate all legal single moves (which are directions from the head).
-	moves := gm.s.generateSingleMoves()
+	moves := gm.s.generateMoves(1)
 
 	// Move A is preferred over move B if, following the move, the distance from location loc(A) to
 	// food is shorter than from loc(B) to food.  On ties, prefer A over B if A is the same
@@ -31,7 +31,7 @@ func (gm *greedyMover) autoMove() {
 			swap := false
 			if dj < di {
 				swap = true
-			} else if dj == di && mj.direction == gm.s.direction {
+			} else if dj == di && mj.direction[0] == gm.s.direction {
 				swap = true
 			}
 			if swap {
@@ -42,6 +42,6 @@ func (gm *greedyMover) autoMove() {
 
 	// And then pick the first one if there is one
 	if len(moves) > 0 {
-		gm.s.direction = moves[0].direction
+		gm.s.direction = moves[0].direction[0]
 	}
 }

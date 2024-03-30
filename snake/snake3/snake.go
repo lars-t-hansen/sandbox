@@ -210,26 +210,35 @@ func (s *Snake) placeFood() {
 	}
 }
 
-// Generate all possible single moves form the current position.  The return value is a list of
-// direction, x, y triplets.  The snake is not updated.  If a move takes us to food it is first in the list.
+// Moves (zero or more) followed by the final position.
 
 type move struct {
-	direction uint8
+	direction []uint8
 	x, y int
 }
 
-func (s *Snake) generateSingleMoves() []move {
+// Generate move sequences of up to n moves from the current position.  The snake is not updated.
+// If a sequence takes us to food it is first in the list.  A sequence that ends in certain death is
+// not included, nor its prefix.
+
+func (s *Snake) generateMoves(n int) []move {
+	if n != 1 {
+		panic("N=1")
+	}
 	moves := make([]move, 0)
+	// The guard is required because, if dead then the head could be on a segment that has open
+	// space next to it.
 	if !s.dead {
-		for i := uint8(0) ; i < 4 ; i++ {
+		for i := 0 ; i < 4 ; i++ {
 			nx := s.xHead + xDelta[i]
 			ny := s.yHead + yDelta[i]
-			d := body | (i << dirShift)
+			d := body | (uint8(i) << dirShift)
+			m := move{[]uint8{d}, nx, ny}
 			switch s.at(nx, ny) {
 			case open:
-				moves = append(moves, move{d, nx, ny} )
+				moves = append(moves, m)
 			case food:
-				moves = append([]move{move{d, nx, ny}}, moves...)
+				moves = append([]move{m}, moves...)
 			}
 		}
 	}
