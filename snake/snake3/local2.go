@@ -30,6 +30,9 @@ func (lm *local2Mover) autoMove() {
 		moves = append(moves, l2move{move: m, possible: p})
 	}
 
+	// FIXME: Actually sorting is not necessary, we can make a single pass to find the best, see
+	// greedy.go.
+
 	// Move A to loc(A) is preferred over move B to loc(B) if, following the move,
 	//  - distance(loc(A), food) == 0, or else
 	//  - loc(A) does not have a forced move but loc(B) does, or else

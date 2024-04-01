@@ -19,29 +19,26 @@ func (gm *greedyMover) autoMove() {
 	// Generate all legal single moves (which are directions from the head).
 	moves := gm.s.generateMoves(1)
 
-	// Move A is preferred over move B if, following the move, the distance from location loc(A) to
-	// food is shorter than from loc(B) to food.  On ties, prefer A over B if A is the same
-	// direction as the current direction.
-	for i := 0 ; i < len(moves)-1 ; i++ {
-		for j := i+1 ; j < len(moves) ; j++ {
-			mi := moves[i]
-			mj := moves[j]
-			di := distance(mi.x, mi.y, gm.s.xFood, gm.s.yFood)
-			dj := distance(mj.x, mj.y, gm.s.xFood, gm.s.yFood)
-			swap := false
-			if dj < di {
-				swap = true
-			} else if dj == di && mj.direction[0] == gm.s.direction {
-				swap = true
+	// If there are any moves, make the best one
+	if len(moves) > 0 {
+		// Move A is preferred over move B if, following the move, the distance from location loc(A)
+		// to food is shorter than from loc(B) to food.  On ties, prefer A over B if A is the same
+		// direction as the current direction.
+		best := moves[0]
+		db := distance(best.x, best.y, gm.s.xFood, gm.s.yFood)
+		for _, m := range moves[1:] {
+			dm := distance(m.x, m.y, gm.s.xFood, gm.s.yFood)
+			improve := false
+			if dm < db {
+				improve = true
+			} else if dm == db && m.direction[0] == gm.s.direction {
+				improve = true
 			}
-			if swap {
-				moves[i], moves[j] = moves[j], moves[i]
+			if improve {
+				best = m
+				db = dm
 			}
 		}
-	}
-
-	// And then pick the first one if there is one
-	if len(moves) > 0 {
-		gm.s.direction = moves[0].direction[0]
+		gm.s.direction = best.direction[0]
 	}
 }
