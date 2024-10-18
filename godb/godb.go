@@ -57,7 +57,7 @@ Loop:
 					fmt.Println("Need three fields")
 					continue Loop
 				}
-				// id name weight
+				// id name weight, the name can have no spaces
 				id, err := strconv.ParseInt(xs[1], 10, 64)
 				if err != nil {
 					fmt.Println("bad id")
