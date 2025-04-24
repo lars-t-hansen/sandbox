@@ -30,18 +30,20 @@ var v = 10
 // This is also not a doc comment, and the next (undocumented) structure has no members and should
 // probably have no output?
 
-type X struct { }
+type Xapping struct { }
 
 // This is a struct definition
-type S struct {
+type Str struct {
 	// This is an int field
-	F1 int
-	// This is a string field
-	F2 string
+	Fx int `json:"fx"`
+	// This is a []string field
+	Fy []string `json:"fy"`
+	// This is a *P field
+	Fz *P `json:"zappa"`
 }
 
 // This is a type alias, also documented
-type W int
+type Work int
 
 // This is the postamble
 type _postamble int

@@ -1,3 +1,13 @@
+// This reads a valid Go package from stdin and extracts some documentation that's written in
+// standard godoc format, and generates various output on stdout, depending on options.  A typical
+// input file is ../formats/newfmt/types.go.  Typical output is markdown documentation, or field
+// name definitions to be used by Rust code.  Try -h.
+//
+// TODO:
+// - obviously it would be fun to hyperlink automatically from uses of types to their definitions
+// - consider emitting not string but enums or other type-safer things (see TODO below)
+// - proper underline insertion in words like MyCPUAvg which should be MY_CPU_AVG (see TODO below)
+
 package main
 
 import (
@@ -8,6 +18,7 @@ import (
 	"go/token"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -15,6 +26,7 @@ var (
 	makeDoc  = flag.Bool("doc", false, "Produce markdown documentation")
 	makeRust = flag.Bool("tag", false, "Produce Rust constant JSON field tags")
 	warnings = flag.Bool("w", false, "Print warnings")
+	fset     = token.NewFileSet()
 )
 
 func main() {
@@ -34,7 +46,6 @@ func main() {
 		fmt.Print("// Edit `util/formats/newfmt/types.go`, then in `util/process-doc` run `make install`.\n\n")
 	}
 
-	fset := token.NewFileSet()
 	f, err := parser.ParseFile(
 		fset,
 		"<stdin>",
@@ -45,6 +56,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var printedTypeHeading bool
 	for _, d := range f.Decls {
 		if item, ok := d.(*ast.GenDecl); ok {
 			switch item.Tok {
@@ -58,74 +70,146 @@ func main() {
 				}
 			case token.TYPE:
 				if item.Lparen.IsValid() {
-					log.Fatal("Parenthesized types not supported")
+					fail(item, "Parenthesized types not supported")
 				}
 				if len(item.Specs) != 1 {
-					log.Fatal("Unexpected structure")
+					fail(item, "Unexpected structure")
 				}
 				td := item.Specs[0].(*ast.TypeSpec)
 				name := td.Name.Name
-				if name == "_preamble" || name == "_postamble" {
-					printDoc(item.Doc)
-					break
+				if *makeDoc && (name == "_preamble" || name == "_postamble") {
+					printDoc(item, item.Doc)
+				} else {
+					if *makeDoc && !printedTypeHeading {
+						fmt.Print("## Data types\n\n")
+						printedTypeHeading = true
+					}
+					if st, ok := td.Type.(*ast.StructType); ok {
+						handleStructType(item, td, st)
+					} else {
+						handleTypeAlias(item, td)
+					}
 				}
-				if st, ok := td.Type.(*ast.StructType); ok {
-					handleStructType(item, td, st)
-					break
-				}
-				// TODO: Type aliases.  Probably we want td.Type to be *ast.Ident in this case.
 			}
 		}
 	}
 }
 
 func handleConst(v *ast.ValueSpec, d *ast.CommentGroup) {
-	name := v.Names[0].Name
-	switch {
-	case *makeDoc:
-		// No-op currently.
-	case *makeRust:
+	if *makeRust {
 		if len(v.Names) != 1 || len(v.Values) != 1 {
-			log.Fatal("Unexpected constant form")
+			fail(v, "Unexpected constant form")
 		}
-		ty := "u64"
+		name := transformName(v.Names[0].Name)
 		value := v.Values[0].(*ast.BasicLit).Value
+		ty := "u64"
 		if strings.HasPrefix(value, "\"") {
 			ty = "&str"
 		}
-		fmt.Printf("pub const %s: %s = %s;\n", transformName(name), ty, value)
+		fmt.Printf("pub const %s: %s = %s;\n", name, ty, value)
 	}
 }
+
+// Probably there's some non-regexp way of doing this
+var jsonRe = regexp.MustCompile(`json:"(.*)"`)
 
 func handleStructType(item *ast.GenDecl, td *ast.TypeSpec, st *ast.StructType) {
-	switch {
-	case *makeDoc:
-		// The doc is attached to the GenDecl
-		fmt.Printf("### Type: `%s`\n\n", td.Name.Name)
-		printDoc(item.Doc)
-		for _, f := range st.Fields.List {
-			// TODO: Assert one name
-			fname := f.Names[0].Name
-			// TODO: The type here could be something complicated, but we should need to
-			// handle at least *T, []T, and idents
-			ftype := "SomeType"
-			fmt.Printf("#### **`%s`** %s\n\n", fname, ftype)
-			printDoc(f.Doc)
+	currType := td.Name.Name
+	if *makeDoc {
+		fmt.Printf("### Type: `%s`\n\n", currType)
+		printDoc(item, item.Doc)
+	}
+	for _, f := range st.Fields.List {
+		if len(f.Names) != 1 {
+			fail(f, "Exactly one field name is required")
 		}
-	case *makeRust:
+		fname := f.Names[0].Name
+		ftype := typeName(f.Type)
+		if f.Tag == nil {
+			fail(f, "Field tag missing")
+		}
+		m := jsonRe.FindStringSubmatch(f.Tag.Value)
+		if m == nil {
+			fail(f, "Field tag malformed - no json?")
+		}
+		fjson := m[1]
+		switch {
+		case *makeDoc:
+			fmt.Printf("#### **`%s`** %s\n\n", fjson, ftype)
+			printDoc(f, f.Doc)
+		case *makeRust:
+			// TODO: These are emitted as &str now.  But in a future universe, once all the old
+			// formatting code is gone, or maybe even before, they could maybe be of a distinguished
+			// type, to prevent literal strings from being used at all.  (It could be an enum wrapping a
+			// &str, modulo problems with initialization, or maybe it would be an enum whose value
+			// points into some table.)
+			fmt.Printf(
+				"pub const %s: &str = \"%s\"; // %s\n",
+				transformName(currType+fname),
+				fjson,
+				ftype,
+			)
+		}
 	}
 }
 
-// Not a comment on function
+func handleTypeAlias(item *ast.GenDecl, td *ast.TypeSpec) {
+	if *makeDoc {
+		fmt.Printf("### Type: `%s`\n\n", td.Name.Name)
+		printDoc(item, item.Doc)
+	}
+}
 
-func printDoc(d *ast.CommentGroup) {
-	if d != nil {
-		//fmt.Println(len(d.List))
+func printDoc(ctx ast.Node, d *ast.CommentGroup) {
+	if d == nil {
+		warn(ctx, "No documentation")
+	} else {
+		var todo bool
 		for _, c := range d.List {
-			fmt.Println(strings.TrimPrefix(c.Text, "// "))
+			doc := c.Text
+			ndoc := strings.TrimPrefix(doc, "// ")
+			if ndoc == doc {
+				ndoc = strings.TrimPrefix(doc, "//")
+			}
+			if !todo && strings.Index(ndoc, "TODO") >= 0 {
+				warn(ctx, "TODO in comment")
+				todo = true
+			}
+			fmt.Println(ndoc)
 		}
 		fmt.Println()
 	}
+}
+
+func typeName(t ast.Expr) string {
+	switch item := t.(type) {
+	case *ast.Ident:
+		return item.Name
+	case *ast.StarExpr:
+		return "*" + typeName(item.X)
+	case *ast.ArrayType:
+		if item.Len != nil {
+			fail(item, "Array, not slice type")
+		}
+		return "[]" + typeName(item.Elt)
+	default:
+		fail(t, fmt.Sprint("Unmanaged type %#v", t))
+		return "*bad*"
+	}
+}
+
+func warn(x ast.Node, msg string) {
+	if *warnings {
+		p := x.Pos()
+		file := fset.File(p)
+		log.Printf("%s:%d: %s", file.Name(), file.Line(p), msg)
+	}
+}
+
+func fail(x ast.Node, msg string) {
+	p := x.Pos()
+	file := fset.File(p)
+	log.Fatalf("%s:%d: %s", file.Name(), file.Line(p), msg)
 }
 
 // Rust naming conventions: In a given name, the first capital letter X after a lower case

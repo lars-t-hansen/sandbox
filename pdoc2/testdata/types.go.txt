@@ -1031,8 +1031,8 @@ type ClusterAttributes struct {
 	// Descriptions of the managed nodes on the cluster
 	Nodes []ClusterNodes `json:"nodes"`
 }
-// A Partition has a unique name and some nodes.  Nodes may be in multiple partitions.
 
+// A Partition has a unique name and some nodes.  Nodes may be in multiple partitions.
 type ClusterPartition struct {
 	// Partition name
 	Name NonemptyString `json:"name"`
