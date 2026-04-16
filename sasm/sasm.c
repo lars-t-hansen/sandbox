@@ -38,30 +38,70 @@
 /* The input is the entire input file.  Every line is terminated by \n, end of input by 0x00. */
 /* Labels and names are max five chars.  There's no output overflow check. */
 
-char w[6];                      /* current word */
-char lbl[2];                    /* label on this line if first char is not ' ' */
+char w[5];                      /* current word */
+char lbl[5];                    /* label on this line if first char is not ' ' */
 char* w2;                       /* word to compare to */
 char* p;                        /* input pointer */
 char* q;                        /* output pointer */
 
+#define SIZE (1024*16)
+
+char input[SIZE];
+unsigned output[SIZE];
+
+void fail(char* msg);
+void scan();
+
+/* Read from stdin, write to stdout */
+int main() {
+    ssize_t n;
+    n = read(0, input, SIZE);
+    if (n == SIZE) {
+        fail("too much input");
+    }
+    input[n] = 0;
+    p = input;
+    q = output;
+    lno = 0;
+    scan();
+    if (q-output > SIZE) {
+        fail("too much output");
+    }
+    write(1, output, q-output);
+    return 0;
+}
+
+void fail(char* msg) {
+    write(2, msg, strlen(msg));
+    exit(1);
+}
+
 void scan() {
-    char c = *p++;
+newl:
+    lbl[0] = ' ';
+    lbl[1] = ' ';
+    lbl[2] = ' ';
+    lbl[3] = ' ';
+    lbl[4] = ' ';
+    lno++;
+
 neww:
     w[0] = ' ';
     w[1] = ' ';
     w[2] = ' ';
     w[3] = ' ';
     w[4] = ' ';
-    w[5] = ' ';
-again:
+
+wloop:
+    char c = *p++;
     if (c == ' ' || c == '\t') {
-        goto again;
+        goto wloop;
     }
     if (c == ';') {
-        while (*p != '*') {
+        while (*p != '\n') {
             p++;
         }
-        goto again;
+        goto wloop;
     }
     if (c >= 'a' && c <= '9') {
         w[0] = c;
@@ -94,7 +134,7 @@ instr:
     // Opcode-only instructions
     w2 = simple;
     while (*w2) {
-        flag=comp();
+        flag=wcomp();
         if (flag) {
             *out++ = w2[5];
             goto end;
@@ -104,25 +144,35 @@ instr:
 
     // Single register instructions
     w2="inr  ";
-    flag=comp();
+    flag=wcomp();
     if (flag) {
-        // possibly r_or_memory takes the bit pattern and this is a goto, b/c there's only one-byte
-        // operations?  but what about the shift amount?
-        op = r_or_memory(&p);
-        *out++ = 0x04 | (op << 3);
-        goto end;
+        op=0x04;
+        shift=3;
+        goto rm;
     }
     w2="dcr  ";
-    flag=comp();
+    flag=wcomp();
     if (flag) {
-        op = rm(&p);
-        *out++ = 0x05 | (op << 3);
-        goto end;
+        op = 0x05;
+        shift=3;
+        got rm;
     }
+
+rm:
+    if (*p != '\t') {
+        goto estax;
+    }
+    // FIXME: look for b,c,d,e,h,l,m,a -> code in r
+    *out++ = op | (r << shift);
+    goto end;
 
 end:
     // TODO: check that there's nothing left over
     return p;
+
+estax:
+    // syntax error on this line
+    fail("Syntax error");
 }
 
 // All of these are 6 bytes: five bytes of opcode name followed by a single opcode byte,
@@ -132,18 +182,7 @@ const unsigned char simple[] =
     "cmc  \x3F"
     "stc  \x37";
 
-// operand scanners also scan any space, a single tab is required
-
-// second operand is 8-bit Register or Memory: b,c,d,e,h,l,m,a
-// with m meaning (hl).
-int rm() {
-    if (*p != '\t') {
-        fail();
-    }
-    p++;
-}
-
-int comp() {
+int wcomp() {
     if (w[0] != w2[0]) return 0;
     if (w[1] != w2[1]) return 0;
     if (w[2] != w2[2]) return 0;
