@@ -1,0 +1,5 @@
+	ORG	0055h
+X:	ADD	C
+	DB	10
+	DW	X+7
+	END
