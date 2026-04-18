@@ -36,7 +36,7 @@
  */
 
 #include <assert.h>
-#include <stdio.h>  /* printf, for now */
+#include <stdio.h>  /* for fprintf in fail() */
 #include <string.h> /* strlen */
 #include <stdlib.h> /* exit */
 #include <fcntl.h>  /* open */
@@ -49,6 +49,12 @@
 #define NSIZE   5               /* Length of name, you can't change this easily */
 #define NAMES   1024            /* 7K, if we want */
 #define HERE    ((q-output)+org) /* current program location */
+
+#define BC  1
+#define DE  2
+#define HL  4
+#define SP  8
+#define PSW 16
 
 #define byte unsigned char
 #define word unsigned short
@@ -68,6 +74,7 @@ int            pass;            /* pass number */
 int            lno;             /* line number */
 word           org;             /* origin */
 
+void assy();
 void scan();
 int  line();
 void cpy(char dst[NSIZE], const char src[NSIZE]);
@@ -86,6 +93,9 @@ byte bval();
 word wcval();
 int  op(char);
 int  xnum(const char w[NSIZE], word* v);
+int  sval(char* buf, int* len);
+byte rm8op();
+byte r16op(byte mask);
 
 struct simple_t {
     char name[NSIZE];
@@ -96,19 +106,35 @@ const struct simple_t simple[] = {
     {"CMA  ", 0x2F},
     {"CMC  ", 0x3F},
     {"DAA  ", 0x27},
+    {"DI   ", 0xF3},
+    {"EI   ", 0xFB},
+    {"HLT  ", 0x76},
     {"NOP  ", 0x00},
+    {"PCHL ", 0xE9},
     {"RAL  ", 0x17},
     {"RAR  ", 0x1F},
+    {"RC   ", 0xD8},
+    {"RET  ", 0xC9},
     {"RLC  ", 0x07},
+    {"RM   ", 0xF8},
+    {"RNC  ", 0xD0},
+    {"RNZ  ", 0xC0},
+    {"RP   ", 0xF0},
+    {"RPE  ", 0xE8},
+    {"RPO  ", 0xE0},
     {"RRC  ", 0x0F},
+    {"RZ   ", 0xC8},
+    {"SPHL ", 0xF9},
     {"STC  ", 0x37},
+    {"XCHG ", 0xEB},
+    {"XTHL ", 0xE3},
     {"*    ", 0x00},
 };
 
 struct rm8_t {
     char name[NSIZE];
     byte op;
-    int  shift;
+    byte shift;
 };
 
 const struct rm8_t rm8[] = {
@@ -125,11 +151,84 @@ const struct rm8_t rm8[] = {
     {"*    ", 0x00, 0},
 };
 
+struct n8_t {
+    char name[NSIZE];
+    byte op;
+};
+
+const struct n8_t n8[] = {
+    {"ACI  ", 0xCE},
+    {"ADI  ", 0xC6},
+    {"ANI  ", 0xE6},
+    {"CPI  ", 0xFE},
+    {"IN   ", 0xDD},
+    {"ORI  ", 0xF6},
+    {"OUT  ", 0xD3},
+    {"SBI  ", 0xDE},
+    {"SUI  ", 0xD6},
+    {"XRI  ", 0xEE},
+    {"*    ", 0x00},
+};
+
+struct r16_t {
+    char name[NSIZE];
+    byte mask;
+    byte op;
+};
+
+/* Shift always 4 */
+const struct r16_t r16[] = {
+    {"DAD  ", BC|DE|HL|SP,  0x09},
+    {"DCX  ", BC|DE|HL|SP,  0x0B},
+    {"INX  ", BC|DE|HL|SP,  0x03},
+    {"LDAX ", BC|DE,        0x0A},
+    {"STAX ", BC|DE,        0x02},
+    {"POP  ", BC|DE|HL|PSW, 0xC1},
+    {"PUSH ", BC|DE|HL|PSW, 0xC5},
+    {"*    ", 0,            0},
+};
+
+struct n16_t {
+    char name[NSIZE];
+    byte op;
+};
+
+const struct n16_t n16[] = {
+    {"CALL ", 0xCD},
+    {"CC   ", 0xDC},
+    {"CM   ", 0xFC},
+    {"CNC  ", 0xD4},
+    {"CNZ  ", 0xC4},
+    {"CP   ", 0xF4},
+    {"CPE  ", 0xEC},
+    {"CPO  ", 0xE4},
+    {"CZ   ", 0xCC},
+    {"JC   ", 0xDA},
+    {"JM   ", 0xFA},
+    {"JMP  ", 0xC3},
+    {"JNC  ", 0xD2},
+    {"JNZ  ", 0xC2},
+    {"JP   ", 0xF2},
+    {"JPE  ", 0xEA},
+    {"JPO  ", 0xE2},
+    {"JZ   ", 0xCA},
+    {"LDA  ", 0x3A},
+    {"LHLD ", 0x2A},
+    {"STA  ", 0x32},
+    {"SHLD ", 0x22},
+    {"*",     0x00},
+};
 
 int main(int argc, char** argv) {
+    /* Command line */
     if (argc != 3) {
         fail("Usage");
     }
+
+    /* Read input.  Set up the input so that a line is always followed by \n and the eof (nul) is
+     * only ever at the start of a line.  That way we only need check for eof at the beginning of a
+     * line in the scanner.
+     */
     int ind = open(argv[1], O_RDONLY);
     if (ind == -1) {
         fail("Could not open input");
@@ -140,23 +239,13 @@ int main(int argc, char** argv) {
     if (n > BUFSIZE-2) {
         fail("too much input");
     }
-    /* Set up the input so that a line is always followed by \n and the eof (nul) is only ever at
-     * the start of a line.  That way we only need check for eof at the beginning of a line in the
-     * scanner.
-     */
     input[n] = '\n';
     input[n+1] = 0;
 
-    namex = names;
+    /* Assemble */
+    assy();
 
-    printf("Pass 1\n");
-    pass = 1;
-    scan();
-
-    printf("Pass 2\n");
-    pass = 2;
-    scan();
-
+    /* Write output, if not overflowed (in which case we may crash) */
     if (q-output > BUFSIZE) {
         fail("too much output");
     }
@@ -166,7 +255,20 @@ int main(int argc, char** argv) {
     }
     write(outd, output, q-output);
     close(outd);
+
     return 0;
+}
+
+void assy() {
+    namex = names;
+
+    pass = 1;
+    scan();
+
+    pass = 2;
+    scan();
+
+    lno = 0;
 }
 
 void scan() {
@@ -174,7 +276,6 @@ void scan() {
     q = output;
     lno = 0;
     while (*p) {
-        printf("Scanning at %p\n", p);
         if (line()) {
             break;
         }
@@ -230,7 +331,19 @@ Linst:
 
     /* Directives */
     if (same(w, "DB   ")) {
-        *q++ = bval();
+        char buf[80];
+        int len;
+        if (sval(buf, &len)) {
+            char* r = buf;
+            while (len-- > 0) {
+                *q++ = *r++;
+            }
+        } else {
+            *q++ = bval();
+            while (op(',')) {
+                *q++ = bval();
+            }
+        }
         goto Leol;
     }
     if (same(w, "DS   ")) {
@@ -244,6 +357,11 @@ Linst:
         word v = value();
         *q++ = v & 255;
         *q++ = v >> 8;
+        while (op(',')) {
+            v = value();
+            *q++ = v & 255;
+            *q++ = v >> 8;
+        }
         goto Leol;
     }
     if (same(w, "END  ")) {
@@ -273,65 +391,81 @@ Linst:
     /* 8-bit register-or-memory instructions */
     for (const struct rm8_t *i = rm8 ; i->name[0] != '*' ; i++ ) {
         if (same(w, i->name)) {
-            if (!wrd(w)) {
-                fail("Expected operand");
-            }
-            byte r;
-            if (same(w, "B    ")) {
-                r = 0;
-            } else if (same(w, "C    ")) {
-                r = 1;
-            } else if (same(w, "D    ")) {
-                r = 2;
-            } else if (same(w, "E    ")) {
-                r = 3;
-            } else if (same(w, "H    ")) {
-                r = 4;
-            } else if (same(w, "L    ")) {
-                r = 5;
-            } else if (same(w, "M    ")) {
-                r = 6;
-            } else if (same(w, "A    ")) {
-                r = 7;
-            } else {
-                fail("Bad operand");
-            }
+            byte r = rm8op();
             *q++ = i->op | (r << i->shift);
             goto Leol;
         }
     }
 
-    /* Load/store indirect */
-    {
-        byte op;
-        if (same(w, "STAX ")) {
-            op = 0x02;
-        } else if (same(w, "LDAX ")) {
-            op = 0x0A;
-        } else {
-            goto Lnxfr;
+    /* Register pair */
+    for (const struct r16_t *i = r16; i->name[0] != '*'; i++ ) {
+        if (same(w, i->name)) {
+            byte r = r16op(i->mask);
+            *q++ = i->op | (r << 4);
+            goto Leol;
         }
-        if (!wrd(w)) {
-            fail("Expected operand");
-        }
-        if (same(w, "B    ")) {
-            ;
-        } else if (same(w, "D    ")) {
-            op |= 0x10;
-        } else {
-            fail("Bad operand");
-        }
-        *q++ = op;
-    Lnxfr:
-        ;
     }
 
-    /* Special */
+    /* 8-bit data instructions */
+    for (const struct n8_t *i = n8 ; i->name[0] != '*' ; i++ ) {
+        if (same(w, i->name)) {
+            byte n = bval();
+            *q++ = i->op;
+            *q++ = n;
+            goto Leol;
+        }
+    }
+
+    /* 16-bit data instructions */
+    for (const struct n16_t *i = n16 ; i->name[0] != '*' ; i++ ) {
+        if (same(w, i->name)) {
+            word n = value();
+            *q++ = i->op;
+            *q++ = n & 255;
+            *q++ = n >> 8;
+            goto Leol;
+        }
+    }
+
+    /* Special cases */
     if (same(w, "MOV  ")) {
-        // TODO: special
+        byte rd = rm8op();
+        if (!op(',')) {
+            fail("Expected ,");
+        }
+        byte rs = rm8op();
+        *q++ = 0x40 | (rd << 3) | rs;
+        goto Leol;
     }
-
-    // TODO: Many more
+    if (same(w, "MVI  ")) {
+        byte r = rm8op();
+        if (!op(',')) {
+            fail("Expected ,");
+        }
+        byte n = bval();
+        *q++ = 0x06 | (r << 3);
+        *q++ = n;
+        goto Leol;
+    }
+    if (same(w, "LXI  ")) {
+        byte r = r16op(BC|DE|HL|SP);
+        if (!op(',')) {
+            fail("Expected ,");
+        }
+        word v = value();
+        *q++ = 0x01 | (r << 4);
+        *q++ = v & 255;
+        *q++ = v >> 8;
+        goto Leol;
+    }
+    if (same(w, "RST  ")) {
+        word n = value();
+        if (n > 7) {
+            fail("Bad RST operand");
+        }
+        *q++ = 0xC7 | (n << 3);
+        goto Leol;
+    }
 
     fail("Unknown instruction");
 
@@ -342,6 +476,63 @@ Leol:
     }
     p++;
     return done;
+}
+
+byte r16op(byte mask) {
+    char w[NSIZE];
+    if (!wrd(w)) {
+        fail("Expected operand");
+    }
+    if ((mask & BC) && same(w, "B    ")) {
+        return 0;
+    }
+    if ((mask & DE) && same(w, "D    ")) {
+        return 1;
+    }
+    if ((mask & HL) && same(w, "H    ")) {
+        return 2;
+    }
+    if ((mask & PSW) && same(w, "PSW  ")) {
+        return 3;
+    }
+    if ((mask & SP) && same(w, "SP  ")) {
+        return 3;
+    }
+    fail("Bad operand");
+    return 0;
+}
+
+byte rm8op() {
+    char w[NSIZE];
+    if (!wrd(w)) {
+        fail("Expected operand");
+    }
+    if (same(w, "B    ")) {
+        return 0;
+    }
+    if (same(w, "C    ")) {
+        return 1;
+    }
+    if (same(w, "D    ")) {
+        return 2;
+    }
+    if (same(w, "E    ")) {
+        return 3;
+    }
+    if (same(w, "H    ")) {
+        return 4;
+    }
+    if (same(w, "L    ")) {
+        return 5;
+    }
+    if (same(w, "M    ")) {
+        return 6;
+    }
+    if (same(w, "A    ")) {
+        return 7;
+    }
+    fail("Bad operand");
+    return 0;
 }
 
 void dset(const char name[NSIZE], word value, int isdef) {
@@ -369,17 +560,6 @@ void def(const char name[NSIZE], word value) {
 
 void set(const char name[NSIZE], word value) {
     dset(name, value, 0);
-}
-
-int lookup(const char name[NSIZE], word* v) {
-    for ( struct name_t *n = names ; n < namex ; n++ ) {
-        if (same(name, n->name)) {
-            *v = n->value;
-            return 1;
-        }
-    }
-    *v = 0;
-    return 0;
 }
 
 word value() {
@@ -411,8 +591,13 @@ word val(const char w[NSIZE]) {
     if (xnum(w, &v)) {
         return v;
     }
-    if (lookup(w, &v)) {
-        return v;
+    for ( struct name_t *n = names ; n < namex ; n++ ) {
+        if (same(w, n->name)) {
+            return n->value;
+        }
+    }
+    if (pass == 1) {
+        return 0;
     }
     fail("Not a value");
     return 0;
@@ -507,6 +692,24 @@ int op(char x) {
     return 0;
 }
 
+int sval(char* buf, int* len) {
+    spc();
+    if (*p == '\'') {
+        p++;
+        *len = 0;
+        while (*p != '\'' && *p != '\n') {
+            *buf++ = *p++;
+            (*len)++;
+        }
+        if (*p != '\'') {
+            fail("Unterminated string");
+        }
+        p++;
+        return 1;
+    }
+    return 0;
+}
+
 /* Fill w with an alphanumeric word and return 1 if a word is found, otherwise 0.  Consumes spaces
  * and comments before the word but not eol or eof.  Fails on unknown input.  When it returns 0, the
  * next char is either eof or eol.
@@ -570,6 +773,11 @@ int same(const char a[NSIZE], const char b[NSIZE]) {
 }
 
 void fail(const char* msg) {
-    write(2, msg, strlen(msg));
+    fprintf(stderr, "Pass %d\n", pass);
+    if (lno != 0) {
+        fprintf(stderr, "%d: %s\n", lno, msg);
+    } else {
+        fputs(msg, stderr);
+    }
     exit(1);
 }

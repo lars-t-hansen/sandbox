@@ -2,53 +2,56 @@
 	
 	;; os entry points
 	
-wboot	equ	0000h
-syscall	equ	0005h
+wboot	EQU	0000h
+syscall	EQU	0005h
 
 	;; os service numbers in c
 	
-prchar	equ	2 		; print char in e
-pr10	equ	5		; print decimal value in de
+prchar	EQU	2 		; print char in e
+pr10	EQU	5		; print decimal value in de
 	
-	org	0100h
+	ORG	0100h
 
 	;; stack
-	ld	hl, (syscall+1)
-	ld	sp, hl
+	LHLD	syscall+1
+	SPHL
 
 	;; print(fib(14))
-	ld	de, 14
-	call	fib
-	ld	c, pr10
-	call	syscall
-	ld	c, prchar
-	ld	e, 13
-	call	syscall
-	ld	c, prchar
-	ld	e, 10
-	call	syscall
+	LXI	D, 14
+	CALL	fib
+	MVI	C, pr10
+	CALL	syscall
+	MVI	C, prchar
+	MVI	E, 13
+	CALL	syscall
+	MVI	C, prchar
+	MVI	E, 10
+	CALL	syscall
 	
 	;; exit
-	jp	wboot
+	JMP	wboot
 
 	;; 16-bit input n in de
 	;; 16-bit result in de
-fib:	push	de
-	pop	hl
-	ld	bc, 2
-	and	a
-	sbc	hl, bc
-	ret	m
-	
-fib2:	dec	de
-	push	de
-	call	fib
-	pop	hl
-	push	de
-	ex	de, hl
-	dec	de
-	call	fib
-	pop	hl
-	add	hl, de
-	ex	de, hl
-	ret
+	;; if n < 2 return n
+fib:	MOV	A, D
+	CPI	0
+	JNZ	fib2
+	MOV	A, E
+	CPI	2
+	JP	fib2
+	RET
+
+	;; return fib(n-1) + fib(n-2)
+fib2:	DCX	D
+	PUSH	D
+	CALL	fib
+	POP	H
+	PUSH	D
+	XCHG
+	DCX	D
+	CALL	fib
+	POP	H
+	DAD	D
+	XCHG
+	RET
