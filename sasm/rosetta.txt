@@ -1,0 +1,15 @@
+# -*- mode: fundamental -*-
+#
+# Two columns: 8080 on the left, z80 on the right.  We're going to
+# automatically check the assembly of the former against the (more
+# credible) assembly of the latter, for every 8080 instruction.
+# Keep in alpha order.
+
+	DB	15h	|	DEFB	15h
+	DW	1234h	|	DEFW	1234h
+	DS	20	|	DEFS	20
+	ADC	D	|	ADC	A, D
+	ADC	M	|	ADC	A, (HL)
+	ADD	C	|	ADD	A, C
+	ADD	M	|	ADD	A, (HL)
+
