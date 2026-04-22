@@ -1,4 +1,4 @@
--- psql -f q.sql postgresql://naicadmin:naicpw@naic-monitor.uio.no:10102/naicmon > foo
+-- psql -f cpu_time.sql postgresql://naicadmin:naicpw@naic-monitor.uio.no:10102/naicmon > cpu_time.txt
 --
 -- what I want is for cluster = fox.educloud.no and a time window t1..t2
 --
@@ -21,7 +21,7 @@ WHERE ( job_id, time ) IN
 ( SELECT job_id, max(time)
   FROM sample_slurm_job
   WHERE cluster = 'fox.educloud.no'
-  AND time >= '2026-04-01'
+  AND time >= '2026-02-01'
   GROUP BY job_id )
 AND user_name != ''
 -- AND job_state != 'FAILED'
@@ -39,7 +39,7 @@ WHERE (job, node, time) IN
 ( SELECT job, node, max(time)
   FROM sample_process
   WHERE cluster = 'fox.educloud.no'
-  AND time >= '2026-04-01'
+  AND time >= '2026-02-01'
   GROUP BY job, node )
 AND pid != 0
 AND job != 0
