@@ -75,7 +75,7 @@ func main() {
 		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
 	})
 
-	fmt.Print(",sum")
+	fmt.Print("Unit: CPU minutes,sum")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
 		fmt.Print(acct)
