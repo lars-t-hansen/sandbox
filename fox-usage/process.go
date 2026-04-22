@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
+	"math"
 	"os"
 	"maps"
 	"slices"
@@ -69,8 +71,11 @@ func main() {
 	var sortedCmds = slices.Collect(maps.Keys(cmds))
 	slices.Sort(sortedCmds)
 	var sortedAccts = slices.Collect(maps.Keys(accts))
-	slices.Sort(sortedAccts)
+	slices.SortFunc(sortedAccts, func (a, b string) int {
+		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
+	})
 
+	fmt.Print(",sum")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
 		fmt.Print(acct)
@@ -79,11 +84,16 @@ func main() {
 
 	for _, cmd := range sortedCmds {
 		fmt.Print(cmd)
+		var sum uint64
+		for _, acct := range sortedAccts {
+			sum += grid[point{cmd, acct}]
+		}
+		fmt.Print(",", uint64(math.Round(float64(sum)/60)))
 		for _, acct := range sortedAccts {
 			fmt.Print(",")
 			x := grid[point{cmd, acct}]
 			if x > 0 {
-				fmt.Print(x)
+				fmt.Print(uint64(math.Round(float64(x)/60)))
 			}
 		}
 		fmt.Println()
@@ -96,4 +106,9 @@ func fields(s string) []string {
 		fs[i] = strings.TrimSpace(fs[i])
 	}
 	return fs
+}
+
+func atoi(s string) int {
+	n, _ := strconv.ParseInt(s, 10, 32)
+	return int(n)
 }
