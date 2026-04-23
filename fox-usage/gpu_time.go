@@ -10,22 +10,18 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		panic("Usage: cpu_time input-file")
+		panic("Usage: gpu_time input-file")
 	}
 	inp, err := os.Open(os.Args[1])
 	if err != nil {
 		panic("Can't open input file " + err.Error())
 	}
 	scanner := bufio.NewScanner(inp)
-	var header []string
-	var jobIdIx = -1
-	var cmdIx = -1
-	var acctIx = -1
-	var cpuTimeIx = -1
 	type point struct {
 		cmd string
 		acct string
@@ -33,23 +29,24 @@ func main() {
 	var grid = make(map[point]uint64)
 	var cmds = make(map[string]bool)
 	var accts = make(map[string]bool)
+	if !scanner.Scan() {
+		panic("No input")
+	}
+	ixs := make(map[string]int)
+	for i, h := range fields(scanner.Text()) {
+		ixs[h] = i
+	}
+	avgIx := ixs["avg"]
+	acctIx := ixs["account"]
+	cmdIx := ixs["job_name"]
+	jobIdIx := ixs["job_id"]
+	startIx := ixs["start_time"]
+	endIx := ixs["end_time"]
+	stateIx := ixs["job_state"]
+	var errs int
 	for scanner.Scan() {
 		l := scanner.Text()
-		if header == nil {
-			header = fields(l)
-			for i, h := range header {
-				switch h {
-				case "job_id":
-					jobIdIx = i
-				case "account":
-					acctIx = i
-				case "cmd":
-					cmdIx = i
-				case "cpu_time":
-					cpuTimeIx = i
-				}
-			}
-		} else if strings.HasPrefix(l, "--") {
+		if strings.HasPrefix(l, "--") {
 			// nothing
 		} else {
 			fs := fields(l)
@@ -60,8 +57,13 @@ func main() {
 					cmd: fs[cmdIx],
 					acct: fs[acctIx],
 				}
-				t, err := strconv.ParseUint(fs[cpuTimeIx], 10, 64)
+				t, err := computeTimeS(fs[avgIx], fs[startIx], fs[endIx], fs[stateIx])
 				if err != nil {
+					fmt.Println(err.Error())
+					errs++
+					if errs > 10 {
+						return
+					}
 					continue
 				}
 				grid[p] += t
@@ -75,7 +77,7 @@ func main() {
 		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
 	})
 
-	fmt.Print("Unit: CPU minutes,sum")
+	fmt.Print("Unit: GPU minutes,sum")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
 		fmt.Print(acct)
@@ -98,6 +100,28 @@ func main() {
 		}
 		fmt.Println()
 	}
+}
+
+func computeTimeS(avg, start, end, state string) (t uint64, err error) {
+	a, err := strconv.ParseFloat(avg, 64)
+	if err != nil {
+		return
+	}
+	s, err := time.Parse("2006-01-02 15:04:05-07", start)
+	if err != nil {
+		return
+	}
+	var e time.Time
+	if end == "" {
+		e = time.Now()
+	} else {
+		e, err = time.Parse("2006-01-02 15:04:05-07", end)
+		if err != nil {
+			return
+		}
+	}
+	t = uint64(math.Round(a*float64(e.Unix()-s.Unix())))
+	return
 }
 
 func fields(s string) []string {
