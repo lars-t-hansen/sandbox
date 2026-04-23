@@ -36,7 +36,6 @@ func main() {
 	jobIdIx := ixs["job_id"]
 	startIx := ixs["start_time"]
 	endIx := ixs["end_time"]
-	stateIx := ixs["job_state"]
 	var errs int
 	for {
 		fs := nextLine(scanner, ixs)
@@ -51,7 +50,7 @@ func main() {
 				job: job,
 				acct: fs[acctIx],
 			}
-			t, err := computeTimeS(fs[avgIx], fs[startIx], fs[endIx], fs[stateIx])
+			t, err := computeTimeS(fs[avgIx], fs[startIx], fs[endIx])
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err.Error())
 				errs++
@@ -95,27 +94,4 @@ func main() {
 		}
 		fmt.Println()
 	}
-}
-
-func computeTimeS(avg, start, end, state string) (t uint64, err error) {
-	a, err := strconv.ParseFloat(avg, 64)
-	if err != nil {
-		return
-	}
-	s, err := time.Parse("2006-01-02 15:04:05-07", start)
-	if err != nil {
-		return
-	}
-	var e time.Time
-	if end == "" {
-		e = time.Now()
-	} else {
-		e, err = time.Parse("2006-01-02 15:04:05-07", end)
-		if err != nil {
-			return
-		}
-	}
-	// Scale by 100 b/c the utilization is in percentage points
-	t = uint64(math.Round(a*float64(e.Unix()-s.Unix())/100))
-	return
 }

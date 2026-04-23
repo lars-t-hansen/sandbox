@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type FoxProject struct {
@@ -121,4 +123,39 @@ func atoi(s string) int {
 
 func escape(s string) string {
 	return strings.Replace(strings.Replace(s, ",", "_", -1), "\"", "_", -1)
+}
+
+var errs int
+
+func fail(s string) {
+	fmt.Fprintf(os.Stderr, "ERROR: " + s)
+	errs++
+	if errs > 10 {
+		panic("Too many errors")
+	}
+}
+
+// Given an average utilization in percentage points and a time span (all strings), compute the
+// total time.
+func computeTimeS(avg, start, end string) (t uint64, err error) {
+	a, err := strconv.ParseFloat(avg, 64)
+	if err != nil {
+		return
+	}
+	s, err := time.Parse("2006-01-02 15:04:05-07", start)
+	if err != nil {
+		return
+	}
+	var e time.Time
+	if end == "" {
+		e = time.Now()
+	} else {
+		e, err = time.Parse("2006-01-02 15:04:05-07", end)
+		if err != nil {
+			return
+		}
+	}
+	// Scale by 100 b/c the utilization is in percentage points
+	t = uint64(math.Round(a*float64(e.Unix()-s.Unix())/100))
+	return
 }

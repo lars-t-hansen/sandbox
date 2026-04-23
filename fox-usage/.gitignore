@@ -1,3 +1,4 @@
 cpu_time.txt
 gpu_time.txt
+card_time.txt
 *.bak
