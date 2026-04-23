@@ -127,9 +127,13 @@ func computeTimeS(avg, start, end, state string) (t uint64, err error) {
 func fields(s string) []string {
 	fs := strings.Split(s, "|")
 	for i := range fs {
-		fs[i] = strings.TrimSpace(fs[i])
+		fs[i] = escape(strings.TrimSpace(fs[i]))
 	}
 	return fs
+}
+
+func escape(s string) string {
+	return strings.Replace(strings.Replace(s, ",", "_", -1), "\"", "_", -1)
 }
 
 func atoi(s string) int {
