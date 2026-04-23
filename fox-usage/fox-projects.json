@@ -1,0 +1,698 @@
+{
+  "cpu_projects": [
+    {
+      "project_number": "ec01",
+      "project_name": "ec01",
+      "project_long_name": "ec01"
+    },
+    {
+      "project_number": "ec11",
+      "project_name": "ec11",
+      "project_long_name": "ec11"
+    },
+    {
+      "project_number": "ec12",
+      "project_name": "Fox project",
+      "project_long_name": "ec12 Fox project"
+    },
+    {
+      "project_number": "ec15",
+      "project_name": "StREP",
+      "project_long_name": "StREP: The Strategy of Recorded Voting in the European Parliament"
+    },
+    {
+      "project_number": "ec27",
+      "project_name": "NKcell",
+      "project_long_name": "The analysis of isoforms of NKp30 in PBMCs."
+    },
+    {
+      "project_number": "ec29",
+      "project_name": "robin",
+      "project_long_name": "ifi-robin"
+    },
+    {
+      "project_number": "ec30",
+      "project_name": "nlpl",
+      "project_long_name": "Nordic Language Processing Laboratory"
+    },
+    {
+      "project_number": "ec31",
+      "project_name": "ncmm",
+      "project_long_name": "NCMM Project"
+    },
+    {
+      "project_number": "ec34",
+      "project_name": "BMI",
+      "project_long_name": "Biomedisinsk informatikk"
+    },
+    {
+      "project_number": "ec35",
+      "project_name": "ecdsb",
+      "project_long_name": "Educloud DSB"
+    },
+    {
+      "project_number": "ec42",
+      "project_name": "Big data applications in psychiatric genetics and neuroimaging.",
+      "project_long_name": "Evaluation of Educloud infrastructure for big data applications in psychiatric genetics and neuroimaging."
+    },
+    {
+      "project_number": "ec54",
+      "project_name": "IN3200/IN4200 student HPC access",
+      "project_long_name": "Student access to HPC infrastructure in connection with solving exercises and projects of IN3200/IN4200"
+    },
+    {
+      "project_number": "ec56",
+      "project_name": "Gut-macro",
+      "project_long_name": "Dissecting differentiation and diversification of gut macrophages"
+    },
+    {
+      "project_number": "ec63",
+      "project_name": "PHAIT",
+      "project_long_name": "Dietary intervention to reduce and delay neurodegeneration in Ataxia-Telangietasia"
+    },
+    {
+      "project_number": "ec85",
+      "project_name": "highRES-UiO",
+      "project_long_name": "highRES-UiO"
+    },
+    {
+      "project_number": "ec98",
+      "project_name": "UNLU",
+      "project_long_name": "Universal Natural Language Understanding"
+    },
+    {
+      "project_number": "ec107",
+      "project_name": "MACROCOP",
+      "project_long_name": "The hidden role of copepods in coastal macroalgae for marine ecosystem"
+    },
+    {
+      "project_number": "ec109",
+      "project_name": "CINPLA",
+      "project_long_name": "CINPLA data storage"
+    },
+    {
+      "project_number": "ec112",
+      "project_name": "AMCARC",
+      "project_long_name": "Amines and Carbon Capture"
+    },
+    {
+      "project_number": "ec154",
+      "project_name": "Deep learning for remote sensing",
+      "project_long_name": "Deep learning for remote sensing"
+    },
+    {
+      "project_number": "ec192",
+      "project_name": "ImAI",
+      "project_long_name": "Image analysis with artificial intelligence"
+    },
+    {
+      "project_number": "ec194",
+      "project_name": "FHI Real-time modelling",
+      "project_long_name": "FHI Real-time modelling"
+    },
+    {
+      "project_number": "ec195",
+      "project_name": "ImmunoHub2.0",
+      "project_long_name": "ImmunoHub2.0"
+    },
+    {
+      "project_number": "ec201",
+      "project_name": "lcbc",
+      "project_long_name": "Biologiske prediktorer for hukommelse - En oppf\u00f8lgingsunders\u00f8kelse"
+    },
+    {
+      "project_number": "ec206",
+      "project_name": "Reanalyzes of Publicly Available Prostate Cancer RNA-Seq datasets",
+      "project_long_name": "Reanalyzes of Publicly Available Prostate Cancer RNA-Seq datasets"
+    },
+    {
+      "project_number": "ec217",
+      "project_name": "CADD",
+      "project_long_name": "Computer-aided drug design"
+    },
+    {
+      "project_number": "ec232",
+      "project_name": "NAIC",
+      "project_long_name": "Norwegian Ai Cloud"
+    },
+    {
+      "project_number": "ec276",
+      "project_name": "Protists V4 metabarcoding in the deep-sea mining areas of the Clarion-Clipperton Zone",
+      "project_long_name": "CCZ V4 metabarcoding"
+    },
+    {
+      "project_number": "ec281",
+      "project_name": "it-hjelp-ai",
+      "project_long_name": "AI for IT-Hjelp"
+    },
+    {
+      "project_number": "ec287",
+      "project_name": "Integreat",
+      "project_long_name": "Centre of Excellence Integreat Norwegian Centre for Knowledge-driven Machine Learning"
+    },
+    {
+      "project_number": "ec309",
+      "project_name": "PRIMA-TF",
+      "project_long_name": "PRIMA target Identification Task Force"
+    },
+    {
+      "project_number": "ec313",
+      "project_name": "autotekst-ec",
+      "project_long_name": "Autotekst EduCloud"
+    },
+    {
+      "project_number": "ec340",
+      "project_name": "Neural activity and cognitive function",
+      "project_long_name": "Sammenheng mellom hjerneaktivitet og hjernefunksjon"
+    },
+    {
+      "project_number": "ec354",
+      "project_name": "Sekulic CryoEM",
+      "project_long_name": "Sekulic CryoEM"
+    },
+    {
+      "project_number": "ec371",
+      "project_name": "MDcell",
+      "project_long_name": "Molecular dynamics simulations for cell membrane"
+    },
+    {
+      "project_number": "ec391",
+      "project_name": "ADA",
+      "project_long_name": "Atmospheric Degradation of Amines"
+    },
+    {
+      "project_number": "ec403",
+      "project_name": "ltg_students",
+      "project_long_name": "Language Technology Group Teaching"
+    },
+    {
+      "project_number": "ec422",
+      "project_name": "POLITEX",
+      "project_long_name": "The Political Executive: Cabinet Government Practice between Laws and Norms"
+    },
+    {
+      "project_number": "ec427",
+      "project_name": "GS-AMR",
+      "project_long_name": "Molecular epidemiology of antimicrobial resistance through genomic sequencing"
+    },
+    {
+      "project_number": "ec428",
+      "project_name": "JIA_cell",
+      "project_long_name": "Cellul\u00e6re og molekyl\u00e6re studier av ledd.\nUnders\u00f8kelser av cellepopulasjoner i leddbiopsier fra barneleddgikt.\nForst\u00e5else av celler i leddv\u00e6ske for \u00e5 fremme persontilpasset behandling av barn og ungdom med barneleddgikt."
+    },
+    {
+      "project_number": "ec440",
+      "project_name": "PCF-UiO-OUH",
+      "project_long_name": "ProteomicsCoreFacility UiO-OUH"
+    },
+    {
+      "project_number": "ec443",
+      "project_name": "Run LLM on Fox",
+      "project_long_name": "Run large language models through Educloud UiO."
+    },
+    {
+      "project_number": "ec446",
+      "project_name": "Genetiske og funksjonelle unders\u00f8kelser av svulstvev til pasienter med lymfekreft",
+      "project_long_name": "Genetiske og funksjonelle unders\u00f8kelser av svulstvev til pasienter med lymfekreft"
+    },
+    {
+      "project_number": "ec488",
+      "project_name": "PSI",
+      "project_long_name": "Peace Science Infrastructure"
+    },
+    {
+      "project_number": "ec503",
+      "project_name": "KI-initiativ plattform",
+      "project_long_name": "KI-initiativ plattform"
+    },
+    {
+      "project_number": "ec511",
+      "project_name": "Studier av makrofager ved tykktarmskreft",
+      "project_long_name": "Studier av makrofager ved tykktarmskreft"
+    },
+    {
+      "project_number": "ec522",
+      "project_name": "Deciphering a Century-Old Puzzle: Warburg effect in Cancer Cells",
+      "project_long_name": "Deciphering a Century-Old Puzzle: Warburg effect in Cancer Cells"
+    },
+    {
+      "project_number": "ec540",
+      "project_name": "DESCRYPT",
+      "project_long_name": "Echoes of History: Analysis and Decipherment of Historical Writings"
+    },
+    {
+      "project_number": "ec564",
+      "project_name": "NORBRUK",
+      "project_long_name": "Senter for norsk fagspr\u00e5k i bruk"
+    },
+    {
+      "project_number": "ec594",
+      "project_name": "Cryo-EM of Transglutaminase",
+      "project_long_name": "Dissecting the immunopathogenesis of Dermatitis Herpetiformis \u2013 a blistering skin disorder"
+    },
+    {
+      "project_number": "ec600",
+      "project_name": "FREMO",
+      "project_long_name": "FREMO Research Group"
+    },
+    {
+      "project_number": "ec616",
+      "project_name": "highRES",
+      "project_long_name": "highRES Renewable Model"
+    },
+    {
+      "project_number": "ec622",
+      "project_name": "Org",
+      "project_long_name": "Organoids"
+    }
+  ],
+  "gpu_projects": [
+    {
+      "project_number": "ec01",
+      "project_name": "ec01",
+      "project_long_name": "ec01"
+    },
+    {
+      "project_number": "ec11",
+      "project_name": "ec11",
+      "project_long_name": "ec11"
+    },
+    {
+      "project_number": "ec12",
+      "project_name": "Fox project",
+      "project_long_name": "ec12 Fox project"
+    },
+    {
+      "project_number": "ec15",
+      "project_name": "StREP",
+      "project_long_name": "StREP: The Strategy of Recorded Voting in the European Parliament"
+    },
+    {
+      "project_number": "ec29",
+      "project_name": "robin",
+      "project_long_name": "ifi-robin"
+    },
+    {
+      "project_number": "ec30",
+      "project_name": "nlpl",
+      "project_long_name": "Nordic Language Processing Laboratory"
+    },
+    {
+      "project_number": "ec31",
+      "project_name": "ncmm",
+      "project_long_name": "NCMM Project"
+    },
+    {
+      "project_number": "ec35",
+      "project_name": "ecdsb",
+      "project_long_name": "Educloud DSB"
+    },
+    {
+      "project_number": "ec54",
+      "project_name": "IN3200/IN4200 student HPC access",
+      "project_long_name": "Student access to HPC infrastructure in connection with solving exercises and projects of IN3200/IN4200"
+    },
+    {
+      "project_number": "ec56",
+      "project_name": "Gut-macro",
+      "project_long_name": "Dissecting differentiation and diversification of gut macrophages"
+    },
+    {
+      "project_number": "ec98",
+      "project_name": "UNLU",
+      "project_long_name": "Universal Natural Language Understanding"
+    },
+    {
+      "project_number": "ec109",
+      "project_name": "CINPLA",
+      "project_long_name": "CINPLA data storage"
+    },
+    {
+      "project_number": "ec154",
+      "project_name": "Deep learning for remote sensing",
+      "project_long_name": "Deep learning for remote sensing"
+    },
+    {
+      "project_number": "ec192",
+      "project_name": "ImAI",
+      "project_long_name": "Image analysis with artificial intelligence"
+    },
+    {
+      "project_number": "ec195",
+      "project_name": "ImmunoHub2.0",
+      "project_long_name": "ImmunoHub2.0"
+    },
+    {
+      "project_number": "ec201",
+      "project_name": "lcbc",
+      "project_long_name": "Biologiske prediktorer for hukommelse - En oppf\u00f8lgingsunders\u00f8kelse"
+    },
+    {
+      "project_number": "ec206",
+      "project_name": "Reanalyzes of Publicly Available Prostate Cancer RNA-Seq datasets",
+      "project_long_name": "Reanalyzes of Publicly Available Prostate Cancer RNA-Seq datasets"
+    },
+    {
+      "project_number": "ec217",
+      "project_name": "CADD",
+      "project_long_name": "Computer-aided drug design"
+    },
+    {
+      "project_number": "ec232",
+      "project_name": "NAIC",
+      "project_long_name": "Norwegian Ai Cloud"
+    },
+    {
+      "project_number": "ec281",
+      "project_name": "it-hjelp-ai",
+      "project_long_name": "AI for IT-Hjelp"
+    },
+    {
+      "project_number": "ec309",
+      "project_name": "PRIMA-TF",
+      "project_long_name": "PRIMA target Identification Task Force"
+    },
+    {
+      "project_number": "ec313",
+      "project_name": "autotekst-ec",
+      "project_long_name": "Autotekst EduCloud"
+    },
+    {
+      "project_number": "ec354",
+      "project_name": "Sekulic CryoEM",
+      "project_long_name": "Sekulic CryoEM"
+    },
+    {
+      "project_number": "ec403",
+      "project_name": "ltg_students",
+      "project_long_name": "Language Technology Group Teaching"
+    },
+    {
+      "project_number": "ec422",
+      "project_name": "POLITEX",
+      "project_long_name": "The Political Executive: Cabinet Government Practice between Laws and Norms"
+    },
+    {
+      "project_number": "ec428",
+      "project_name": "JIA_cell",
+      "project_long_name": "Cellul\u00e6re og molekyl\u00e6re studier av ledd.\nUnders\u00f8kelser av cellepopulasjoner i leddbiopsier fra barneleddgikt.\nForst\u00e5else av celler i leddv\u00e6ske for \u00e5 fremme persontilpasset behandling av barn og ungdom med barneleddgikt."
+    },
+    {
+      "project_number": "ec443",
+      "project_name": "Run LLM on Fox",
+      "project_long_name": "Run large language models through Educloud UiO."
+    },
+    {
+      "project_number": "ec488",
+      "project_name": "PSI",
+      "project_long_name": "Peace Science Infrastructure"
+    },
+    {
+      "project_number": "ec503",
+      "project_name": "KI-initiativ plattform",
+      "project_long_name": "KI-initiativ plattform"
+    },
+    {
+      "project_number": "ec511",
+      "project_name": "Studier av makrofager ved tykktarmskreft",
+      "project_long_name": "Studier av makrofager ved tykktarmskreft"
+    },
+    {
+      "project_number": "ec564",
+      "project_name": "NORBRUK",
+      "project_long_name": "Senter for norsk fagspr\u00e5k i bruk"
+    },
+    {
+      "project_number": "ec425",
+      "project_name": "Norchron",
+      "project_long_name": "Norwegian diachronic corpus 200\u20131814"
+    }
+  ],
+  "all_projects": [
+    {
+      "project_number": "ec01",
+      "project_name": "ec01",
+      "project_long_name": "ec01"
+    },
+    {
+      "project_number": "ec11",
+      "project_name": "ec11",
+      "project_long_name": "ec11"
+    },
+    {
+      "project_number": "ec12",
+      "project_name": "Fox project",
+      "project_long_name": "ec12 Fox project"
+    },
+    {
+      "project_number": "ec15",
+      "project_name": "StREP",
+      "project_long_name": "StREP: The Strategy of Recorded Voting in the European Parliament"
+    },
+    {
+      "project_number": "ec27",
+      "project_name": "NKcell",
+      "project_long_name": "The analysis of isoforms of NKp30 in PBMCs."
+    },
+    {
+      "project_number": "ec29",
+      "project_name": "robin",
+      "project_long_name": "ifi-robin"
+    },
+    {
+      "project_number": "ec30",
+      "project_name": "nlpl",
+      "project_long_name": "Nordic Language Processing Laboratory"
+    },
+    {
+      "project_number": "ec31",
+      "project_name": "ncmm",
+      "project_long_name": "NCMM Project"
+    },
+    {
+      "project_number": "ec34",
+      "project_name": "BMI",
+      "project_long_name": "Biomedisinsk informatikk"
+    },
+    {
+      "project_number": "ec35",
+      "project_name": "ecdsb",
+      "project_long_name": "Educloud DSB"
+    },
+    {
+      "project_number": "ec42",
+      "project_name": "Big data applications in psychiatric genetics and neuroimaging.",
+      "project_long_name": "Evaluation of Educloud infrastructure for big data applications in psychiatric genetics and neuroimaging."
+    },
+    {
+      "project_number": "ec54",
+      "project_name": "IN3200/IN4200 student HPC access",
+      "project_long_name": "Student access to HPC infrastructure in connection with solving exercises and projects of IN3200/IN4200"
+    },
+    {
+      "project_number": "ec56",
+      "project_name": "Gut-macro",
+      "project_long_name": "Dissecting differentiation and diversification of gut macrophages"
+    },
+    {
+      "project_number": "ec63",
+      "project_name": "PHAIT",
+      "project_long_name": "Dietary intervention to reduce and delay neurodegeneration in Ataxia-Telangietasia"
+    },
+    {
+      "project_number": "ec85",
+      "project_name": "highRES-UiO",
+      "project_long_name": "highRES-UiO"
+    },
+    {
+      "project_number": "ec98",
+      "project_name": "UNLU",
+      "project_long_name": "Universal Natural Language Understanding"
+    },
+    {
+      "project_number": "ec107",
+      "project_name": "MACROCOP",
+      "project_long_name": "The hidden role of copepods in coastal macroalgae for marine ecosystem"
+    },
+    {
+      "project_number": "ec109",
+      "project_name": "CINPLA",
+      "project_long_name": "CINPLA data storage"
+    },
+    {
+      "project_number": "ec112",
+      "project_name": "AMCARC",
+      "project_long_name": "Amines and Carbon Capture"
+    },
+    {
+      "project_number": "ec154",
+      "project_name": "Deep learning for remote sensing",
+      "project_long_name": "Deep learning for remote sensing"
+    },
+    {
+      "project_number": "ec192",
+      "project_name": "ImAI",
+      "project_long_name": "Image analysis with artificial intelligence"
+    },
+    {
+      "project_number": "ec194",
+      "project_name": "FHI Real-time modelling",
+      "project_long_name": "FHI Real-time modelling"
+    },
+    {
+      "project_number": "ec195",
+      "project_name": "ImmunoHub2.0",
+      "project_long_name": "ImmunoHub2.0"
+    },
+    {
+      "project_number": "ec201",
+      "project_name": "lcbc",
+      "project_long_name": "Biologiske prediktorer for hukommelse - En oppf\u00f8lgingsunders\u00f8kelse"
+    },
+    {
+      "project_number": "ec206",
+      "project_name": "Reanalyzes of Publicly Available Prostate Cancer RNA-Seq datasets",
+      "project_long_name": "Reanalyzes of Publicly Available Prostate Cancer RNA-Seq datasets"
+    },
+    {
+      "project_number": "ec217",
+      "project_name": "CADD",
+      "project_long_name": "Computer-aided drug design"
+    },
+    {
+      "project_number": "ec232",
+      "project_name": "NAIC",
+      "project_long_name": "Norwegian Ai Cloud"
+    },
+    {
+      "project_number": "ec276",
+      "project_name": "Protists V4 metabarcoding in the deep-sea mining areas of the Clarion-Clipperton Zone",
+      "project_long_name": "CCZ V4 metabarcoding"
+    },
+    {
+      "project_number": "ec281",
+      "project_name": "it-hjelp-ai",
+      "project_long_name": "AI for IT-Hjelp"
+    },
+    {
+      "project_number": "ec287",
+      "project_name": "Integreat",
+      "project_long_name": "Centre of Excellence Integreat Norwegian Centre for Knowledge-driven Machine Learning"
+    },
+    {
+      "project_number": "ec309",
+      "project_name": "PRIMA-TF",
+      "project_long_name": "PRIMA target Identification Task Force"
+    },
+    {
+      "project_number": "ec313",
+      "project_name": "autotekst-ec",
+      "project_long_name": "Autotekst EduCloud"
+    },
+    {
+      "project_number": "ec340",
+      "project_name": "Neural activity and cognitive function",
+      "project_long_name": "Sammenheng mellom hjerneaktivitet og hjernefunksjon"
+    },
+    {
+      "project_number": "ec354",
+      "project_name": "Sekulic CryoEM",
+      "project_long_name": "Sekulic CryoEM"
+    },
+    {
+      "project_number": "ec371",
+      "project_name": "MDcell",
+      "project_long_name": "Molecular dynamics simulations for cell membrane"
+    },
+    {
+      "project_number": "ec391",
+      "project_name": "ADA",
+      "project_long_name": "Atmospheric Degradation of Amines"
+    },
+    {
+      "project_number": "ec403",
+      "project_name": "ltg_students",
+      "project_long_name": "Language Technology Group Teaching"
+    },
+    {
+      "project_number": "ec422",
+      "project_name": "POLITEX",
+      "project_long_name": "The Political Executive: Cabinet Government Practice between Laws and Norms"
+    },
+    {
+      "project_number": "ec427",
+      "project_name": "GS-AMR",
+      "project_long_name": "Molecular epidemiology of antimicrobial resistance through genomic sequencing"
+    },
+    {
+      "project_number": "ec428",
+      "project_name": "JIA_cell",
+      "project_long_name": "Cellul\u00e6re og molekyl\u00e6re studier av ledd.\nUnders\u00f8kelser av cellepopulasjoner i leddbiopsier fra barneleddgikt.\nForst\u00e5else av celler i leddv\u00e6ske for \u00e5 fremme persontilpasset behandling av barn og ungdom med barneleddgikt."
+    },
+    {
+      "project_number": "ec440",
+      "project_name": "PCF-UiO-OUH",
+      "project_long_name": "ProteomicsCoreFacility UiO-OUH"
+    },
+    {
+      "project_number": "ec443",
+      "project_name": "Run LLM on Fox",
+      "project_long_name": "Run large language models through Educloud UiO."
+    },
+    {
+      "project_number": "ec446",
+      "project_name": "Genetiske og funksjonelle unders\u00f8kelser av svulstvev til pasienter med lymfekreft",
+      "project_long_name": "Genetiske og funksjonelle unders\u00f8kelser av svulstvev til pasienter med lymfekreft"
+    },
+    {
+      "project_number": "ec488",
+      "project_name": "PSI",
+      "project_long_name": "Peace Science Infrastructure"
+    },
+    {
+      "project_number": "ec503",
+      "project_name": "KI-initiativ plattform",
+      "project_long_name": "KI-initiativ plattform"
+    },
+    {
+      "project_number": "ec511",
+      "project_name": "Studier av makrofager ved tykktarmskreft",
+      "project_long_name": "Studier av makrofager ved tykktarmskreft"
+    },
+    {
+      "project_number": "ec522",
+      "project_name": "Deciphering a Century-Old Puzzle: Warburg effect in Cancer Cells",
+      "project_long_name": "Deciphering a Century-Old Puzzle: Warburg effect in Cancer Cells"
+    },
+    {
+      "project_number": "ec540",
+      "project_name": "DESCRYPT",
+      "project_long_name": "Echoes of History: Analysis and Decipherment of Historical Writings"
+    },
+    {
+      "project_number": "ec564",
+      "project_name": "NORBRUK",
+      "project_long_name": "Senter for norsk fagspr\u00e5k i bruk"
+    },
+    {
+      "project_number": "ec594",
+      "project_name": "Cryo-EM of Transglutaminase",
+      "project_long_name": "Dissecting the immunopathogenesis of Dermatitis Herpetiformis \u2013 a blistering skin disorder"
+    },
+    {
+      "project_number": "ec600",
+      "project_name": "FREMO",
+      "project_long_name": "FREMO Research Group"
+    },
+    {
+      "project_number": "ec616",
+      "project_name": "highRES",
+      "project_long_name": "highRES Renewable Model"
+    },
+    {
+      "project_number": "ec622",
+      "project_name": "Org",
+      "project_long_name": "Organoids"
+    }
+  ]
+}
