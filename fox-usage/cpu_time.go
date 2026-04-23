@@ -21,51 +21,44 @@ func main() {
 		panic("Can't open input file " + err.Error())
 	}
 	scanner := bufio.NewScanner(inp)
-	var header []string
-	var jobIdIx = -1
-	var cmdIx = -1
-	var acctIx = -1
-	var cpuTimeIx = -1
 	type point struct {
 		cmd string
 		acct string
 	}
-	var grid = make(map[point]uint64)
+	var cpuTime = make(map[point]uint64)
+	var jobNames = make(map[string]map[string]bool)
 	var cmds = make(map[string]bool)
 	var accts = make(map[string]bool)
-	for scanner.Scan() {
-		l := scanner.Text()
-		if header == nil {
-			header = fields(l)
-			for i, h := range header {
-				switch h {
-				case "job_id":
-					jobIdIx = i
-				case "account":
-					acctIx = i
-				case "cmd":
-					cmdIx = i
-				case "cpu_time":
-					cpuTimeIx = i
-				}
+	ixs := findHeader(scanner)
+	jobIdIx := ixs["job_id"]
+	jobNameIx := ixs["job_name"]
+	cmdIx := ixs["cmd"]
+	acctIx := ixs["account"]
+	cpuTimeIx := ixs["cpuTime"]
+	for {
+		fs := nextLine(scanner, ixs)
+		if fs == nil {
+			break
+		}
+		if fs[jobIdIx] != "" {
+			cmd := mungeCmd(fs[cmdIx])
+			cmds[cmd] = true
+			accts[fs[acctIx]] = true
+			p := point{
+				cmd: cmd,
+				acct: fs[acctIx],
 			}
-		} else if strings.HasPrefix(l, "--") {
-			// nothing
-		} else {
-			fs := fields(l)
-			if fs[jobIdIx] != "" {
-				cmds[fs[cmdIx]] = true
-				accts[fs[acctIx]] = true
-				p := point{
-					cmd: fs[cmdIx],
-					acct: fs[acctIx],
-				}
-				t, err := strconv.ParseUint(fs[cpuTimeIx], 10, 64)
-				if err != nil {
-					continue
-				}
-				grid[p] += t
+			t, err := strconv.ParseUint(fs[cpuTimeIx], 10, 64)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Bad: %s\n", fs[cpuTimeIx])
+				continue
 			}
+			cpuTime[p] += t
+			jobName := mungeJobName(fs[jobNameIx])
+			if jobNames[cmd] == nil {
+				jobNames[cmd] = make(map[string]bool)
+			}
+			jobNames[cmd][jobName] = true
 		}
 	}
 	var sortedCmds = slices.Collect(maps.Keys(cmds))
@@ -75,10 +68,10 @@ func main() {
 		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
 	})
 
-	fmt.Print("Unit: CPU minutes,sum")
+	fmt.Print("Unit: CPU minutes,sum,jobs")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
-		fmt.Print(acct)
+		fmt.Print(projects[acct])
 	}
 	fmt.Println()
 
@@ -86,29 +79,22 @@ func main() {
 		fmt.Print(cmd)
 		var sum uint64
 		for _, acct := range sortedAccts {
-			sum += grid[point{cmd, acct}]
+			sum += cpuTime[point{cmd, acct}]
 		}
 		fmt.Print(",", uint64(math.Round(float64(sum)/60)))
+		names := slices.Collect(maps.Keys(jobNames[cmd]))
+		if len(names) > 2 {
+			fmt.Printf(",%s ...", strings.Join(names[:2], " "))
+		} else {
+			fmt.Printf(",%s", strings.Join(names, " "))
+		}
 		for _, acct := range sortedAccts {
 			fmt.Print(",")
-			x := grid[point{cmd, acct}]
+			x := cpuTime[point{cmd, acct}]
 			if x > 0 {
 				fmt.Print(uint64(math.Round(float64(x)/60)))
 			}
 		}
 		fmt.Println()
 	}
-}
-
-func fields(s string) []string {
-	fs := strings.Split(s, "|")
-	for i := range fs {
-		fs[i] = strings.TrimSpace(fs[i])
-	}
-	return fs
-}
-
-func atoi(s string) int {
-	n, _ := strconv.ParseInt(s, 10, 32)
-	return int(n)
 }

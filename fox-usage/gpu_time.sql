@@ -27,6 +27,7 @@ LEFT JOIN sample_process AS t2
   ON t1.pid = t2.pid AND t1.node = t2.node AND t1.time = t2.time
 WHERE t1.cluster = 'fox.educloud.no'
 AND t1.time >= '2026-02-01'
+AND t1.pid != 0
 GROUP BY t1.job, t1.node, t1.pid, cmd, uuid
 ORDER BY t1.job
 ;

@@ -9,7 +9,6 @@ import (
 	"maps"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -23,77 +22,73 @@ func main() {
 	}
 	scanner := bufio.NewScanner(inp)
 	type point struct {
-		cmd string
+		job string
 		acct string
 	}
-	var grid = make(map[point]uint64)
-	var cmds = make(map[string]bool)
+	var gpuTime = make(map[point]uint64)
+	var counts = make(map[string]int)
+	var jobs = make(map[string]bool)
 	var accts = make(map[string]bool)
-	if !scanner.Scan() {
-		panic("No input")
-	}
-	ixs := make(map[string]int)
-	for i, h := range fields(scanner.Text()) {
-		ixs[h] = i
-	}
+	ixs := findHeader(scanner)
 	avgIx := ixs["avg"]
 	acctIx := ixs["account"]
-	cmdIx := ixs["job_name"]
+	jobIx := ixs["job_name"]
 	jobIdIx := ixs["job_id"]
 	startIx := ixs["start_time"]
 	endIx := ixs["end_time"]
 	stateIx := ixs["job_state"]
 	var errs int
-	for scanner.Scan() {
-		l := scanner.Text()
-		if strings.HasPrefix(l, "--") {
-			// nothing
-		} else {
-			fs := fields(l)
-			if fs[jobIdIx] != "" {
-				cmds[fs[cmdIx]] = true
-				accts[fs[acctIx]] = true
-				p := point{
-					cmd: fs[cmdIx],
-					acct: fs[acctIx],
-				}
-				t, err := computeTimeS(fs[avgIx], fs[startIx], fs[endIx], fs[stateIx])
-				if err != nil {
-					fmt.Println(err.Error())
-					errs++
-					if errs > 10 {
-						return
-					}
-					continue
-				}
-				grid[p] += t
+	for {
+		fs := nextLine(scanner, ixs)
+		if fs == nil {
+			break
+		}
+		if fs[jobIdIx] != "" {
+			job := mungeJobNameAggressive(fs[jobIx])
+			jobs[job] = true
+			accts[fs[acctIx]] = true
+			p := point{
+				job: job,
+				acct: fs[acctIx],
 			}
+			t, err := computeTimeS(fs[avgIx], fs[startIx], fs[endIx], fs[stateIx])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				errs++
+				if errs > 10 {
+					return
+				}
+				continue
+			}
+			gpuTime[p] += t
+			counts[job]++
 		}
 	}
-	var sortedCmds = slices.Collect(maps.Keys(cmds))
-	slices.Sort(sortedCmds)
+	var sortedJobs = slices.Collect(maps.Keys(jobs))
+	slices.Sort(sortedJobs)
 	var sortedAccts = slices.Collect(maps.Keys(accts))
 	slices.SortFunc(sortedAccts, func (a, b string) int {
 		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
 	})
 
-	fmt.Print("Unit: GPU minutes,sum")
+	fmt.Print("Unit: GPU minutes,count,sum")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
-		fmt.Print(acct)
+		fmt.Print(projects[acct])
 	}
 	fmt.Println()
 
-	for _, cmd := range sortedCmds {
-		fmt.Print(cmd)
+	for _, job := range sortedJobs {
+		fmt.Print(job)
+		fmt.Print(",", counts[job])
 		var sum uint64
 		for _, acct := range sortedAccts {
-			sum += grid[point{cmd, acct}]
+			sum += gpuTime[point{job, acct}]
 		}
 		fmt.Print(",", uint64(math.Round(float64(sum)/60)))
 		for _, acct := range sortedAccts {
 			fmt.Print(",")
-			x := grid[point{cmd, acct}]
+			x := gpuTime[point{job, acct}]
 			if x > 0 {
 				fmt.Print(uint64(math.Round(float64(x)/60)))
 			}
@@ -120,23 +115,7 @@ func computeTimeS(avg, start, end, state string) (t uint64, err error) {
 			return
 		}
 	}
-	t = uint64(math.Round(a*float64(e.Unix()-s.Unix())))
+	// Scale by 100 b/c the utilization is in percentage points
+	t = uint64(math.Round(a*float64(e.Unix()-s.Unix())/100))
 	return
-}
-
-func fields(s string) []string {
-	fs := strings.Split(s, "|")
-	for i := range fs {
-		fs[i] = escape(strings.TrimSpace(fs[i]))
-	}
-	return fs
-}
-
-func escape(s string) string {
-	return strings.Replace(strings.Replace(s, ",", "_", -1), "\"", "_", -1)
-}
-
-func atoi(s string) int {
-	n, _ := strconv.ParseInt(s, 10, 32)
-	return int(n)
 }

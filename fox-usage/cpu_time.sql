@@ -14,7 +14,7 @@
 -- now we have a table with slurm and job data for every process
 
 DROP TABLE IF EXISTS job;
-SELECT job_id, job_state, account, user_name, time, job_name
+SELECT job_id, job_state, account, user_name, job_name, start_time, end_time
 INTO job
 FROM sample_slurm_job
 WHERE ( job_id, time ) IN
@@ -32,7 +32,7 @@ ORDER BY job_id
 ;
 
 DROP TABLE IF EXISTS proc;
-SELECT cpu_time, job, node, pid, cmd, time
+SELECT cpu_time, job, node, pid, cmd
 INTO proc
 FROM sample_process
 WHERE (job, node, time) IN
@@ -46,4 +46,4 @@ AND job != 0
 ORDER BY job
 ;
 
-SELECT * from proc left join job on proc.job = job.job_id ;
+SELECT cpu_time, start_time, end_time, job_id, node, job_state, account, user_name, job_name, cmd from proc left join job on proc.job = job.job_id ;
