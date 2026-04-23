@@ -26,7 +26,7 @@ FROM sample_process_gpu AS t1
 LEFT JOIN sample_process AS t2
   ON t1.pid = t2.pid AND t1.node = t2.node AND t1.time = t2.time
 WHERE t1.cluster = 'fox.educloud.no'
-AND t1.time >= '2026-04-15'
+AND t1.time >= '2026-02-01'
 GROUP BY t1.job, t1.node, t1.pid, cmd, uuid
 ORDER BY t1.job
 ;
@@ -40,7 +40,7 @@ WHERE ( job_id, time ) IN
 ( SELECT job_id, max(time)
   FROM sample_slurm_job
   WHERE cluster = 'fox.educloud.no'
-  AND time >= '2026-04-15'
+  AND time >= '2026-02-01'
   GROUP BY job_id )
 AND user_name != ''
 AND job_state != 'PENDING'
