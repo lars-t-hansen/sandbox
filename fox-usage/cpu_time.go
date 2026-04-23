@@ -68,10 +68,10 @@ func main() {
 		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
 	})
 
-	fmt.Print("Unit: CPU minutes,sum,jobs")
+	fmt.Print("Unit: CPU minutes,sum,jobs,numjobs")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
-		fmt.Print(projects[acct])
+		fmt.Print(projects[acct] + "(" + acct + ")")
 	}
 	fmt.Println()
 
@@ -88,6 +88,7 @@ func main() {
 		} else {
 			fmt.Printf(",%s", strings.Join(names, " "))
 		}
+		fmt.Printf(",%d", len(names))
 		for _, acct := range sortedAccts {
 			fmt.Print(",")
 			x := cpuTime[point{cmd, acct}]

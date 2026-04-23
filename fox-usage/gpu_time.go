@@ -71,10 +71,10 @@ func main() {
 		return cmp.Compare(atoi(a[2:]), atoi(b[2:]))
 	})
 
-	fmt.Print("Unit: GPU minutes,count,sum")
+	fmt.Print("Unit: GPU minutes,numjobs,sum")
 	for _, acct := range sortedAccts {
 		fmt.Print(",")
-		fmt.Print(projects[acct])
+		fmt.Print(projects[acct] + "(" + acct + ")")
 	}
 	fmt.Println()
 
