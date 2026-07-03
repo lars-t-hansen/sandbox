@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Nonreader is sleeping 10s"
+sleep 10
+echo "Nonreader exits"
