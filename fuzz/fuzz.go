@@ -1,184 +1,109 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
-	_ "fmt"
+	"flag"
 	"iter"
 	"log"
-	"net/http"
 	"strings"
 )
 
 var api = getOpenApi("f.json")
 var service = "http://localhost:1234"
+var queryFuzzers = make(map[string]iter.Seq[FuzzValue])
+var paramFuzzers = make(map[string]iter.Seq[FuzzValue])
+var warn = flag.Bool("w", false, "Warn about unfuzzed formats")
+
+type FuzzValue struct {
+	V     string
+	Valid bool
+}
 
 func main() {
-	reqd := map[string]string{
-		"cluster":"fox.educloud.no",
-	}
+	flag.Parse()
+
+	// For every `get` operation we want to test it.  If some field is fuzzable we want to run
+	// it once for each fuzz value (including none, if optional).  Known-invalid values will
+	// lead to a known-invalid flag being set and an error code being expected.
+	//
+	// TODO: Here the error code is pinned to a specific value and that may be OK for what we're
+	// testing, but in general the fuzz values might carry the expected error code and the allValid
+	// flag should be replaced by a set of possible error codes.
+
+	warned := make(map[string]bool)
 	for path, v := range api.Paths {
 		if v.Get.OperationId == "" {
 			continue
 		}
 
-		// For every `get` operation we want to test it.  If some field is fuzzable we want to run
-		// it once for each fuzz value (including none, if optional).  This becomes hard: start-time
-		// and start-date are kind of mutually exclusive.  So limit ourselves to "date" fields.
-
-		var names []string
-		var valueGens []iter.Seq[value]
+		var pathNames []string
+		var pathValueGens []iter.Seq[FuzzValue]
+		var queryNames []string
+		var queryValueGens []iter.Seq[FuzzValue]
 		for _, param := range v.Get.Parameters {
 			switch param.In {
 			case "path":
-				path = subst(path, param.Name, reqd[param.Name])
+				g := paramFuzzers[param.Name]
+				if g == nil {
+					log.Fatalf("Path parameter fuzzer must exist for name \"%s\"", param.Name)
+				}
+				pathNames = append(pathNames, param.Name)
+				pathValueGens = append(pathValueGens, g)
 			case "query":
-				if param.Schema.Format != "date" {
+				// TODO: This is too primitive.  Consider cases where we don't have a format but may
+				// have a type, and we may have min/max values or other constraints: minLength is
+				// obvious.  So the map is not just queryFuzzers, it's queryFormatFuzzers; for other
+				// cases there may be more.
+				if param.Schema.Format == "" {
 					continue
 				}
-				names = append(names, param.Name)
-				valueGens = append(valueGens, dateFuzzer())
+				g := queryFuzzers[param.Schema.Format]
+				if g == nil {
+					if *warn && !warned[param.Schema.Format] {
+						warned[param.Schema.Format] = true
+						log.Printf("Unfuzzed format \"%s\"", param.Schema.Format)
+					}
+					continue
+				}
+				queryNames = append(queryNames, param.Name)
+				queryValueGens = append(queryValueGens, g)
 			case "header":
 				// Do nothing
 			}
 		}
-		if strings.HasSuffix(path, "/") {
-			path = path[:len(path)-1]
-		}
-		withAll(valueGens, nil, 0, func (values []string, valid bool) {
-			vs := strings.Join(zipem(names, values), "&")
-			p := service + path
-			if vs != "" {
-				p = p + "?" + vs
+		withAllValues(pathValueGens, func(pathValues []string, allValid bool) {
+			newPath := path
+			for i := range pathValues {
+				newPath = subst(newPath, pathNames[i], pathValues[i])
 			}
-			//fmt.Println(p, valid)
-			c := 200
-			if !valid {
-				c = 422  // Uprocessable Entity
-			}
-			_, r, err := doit(p, c)
-			if err != nil {
-				log.Printf("%s: failed: %v %d", p, err, r.StatusCode)
-			} else {
-				log.Printf("%s: SUCCESS", p)
-			}
+			url := cleanUrl(service + newPath)
+			withAllValues(queryValueGens, func(queryValues []string, allValid bool) {
+				// 422 = Unprocessable Entity
+				_, r, err := requestAndResponse(url, queryNames, queryValues, allValid, 422)
+				if err != nil {
+					log.Printf("%s: failed: %v %d", url, err, r.StatusCode)
+				} else {
+					log.Printf("%s: SUCCESS", url)
+				}
+			})
 		})
 	}
-
-	// So here, for every API, look for something with format:"date", then invoke the
-	// server with every date fuzzer value (including none) for each of the fields.
-	/*
-	j, _, err := doit("http://localhost:1234/api/v1/jobs/fox.educloud.no?start_date=20260101", 200)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("%T\n", j);
-	if a, ok := j.([]any); ok {
-		fmt.Printf("%v\n", a);
-	} else {
-		log.Fatalf("Bad form: %v", j)
-	}
-	*/
-}
-
-type sofar struct {
-	x value
-	next *sofar
-}
-
-func withAll(gs []iter.Seq[value], zapp *sofar, n int, do func([]string, bool)) {
-	if len(gs) == 0 {
-		vals, valid := values(zapp, n)
-		do(vals, valid)
-		return
-	}
-	for v := range gs[0] {
-		withAll(gs[1:], &sofar{v, zapp}, n+1, do)
-	}
-}
-
-func values(xs *sofar, n int) ([]string, bool) {
-	vs := make([]string, n)
-	valid := true
-	for n > 0 {
-		n--
-		vs[n] = xs.x.v
-		valid = valid && xs.x.valid
-		xs = xs.next
-	}
-	return vs, valid
-}
-
-func zipem(as, bs []string) (result []string) {
-	for i := range as {
-		if bs[i] != "" {
-			result = append(result, as[i] + "=" + bs[i])
-		}
-	}
-	return
 }
 
 func subst(s, name, t string) string {
-	return strings.Replace(s, "{" + name + "}", t, 1)
+	return strings.Replace(s, "{"+name+"}", t, 1)
 }
 
-
-// The first value is a JSON object.  Object types are maps, array types are slices, not sure yet
-// what numbers are, possibly json.Number.  The second is the original response.  The third is an
-// error, or badCode or badJson.
-
-var (
-	badCode = errors.New("Bad status code")
-	badJson = errors.New("Bad JSON")
-)
-
-func doit(url string, expect int) (any, *http.Response, error) {
-	r, err := http.Get(url)
-	if err != nil {
-		return nil, r, err
-	}
-	if r.StatusCode != expect {
-		return nil, r, errors.Join(badCode, errors.New(r.Status))
-	}
-	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
-	var x any
-	err = dec.Decode(&x)
-	if err != nil {
-		return nil, r, errors.Join(badJson, err)
-	}
-	return x, r, nil
+func withAllValues(gs []iter.Seq[FuzzValue], apply func([]string, bool)) {
+	withAll(gs, make([]string, len(gs)), 0, true, apply)
 }
 
-// Date fuzzer for anything with format:"date"
-
-/*
-var (
-	goodDates = []string{"yyyy-mm-dd"}
-	badDates  = []string{"yyyymmdd", "yyyy-mmdd", "yyyymm-dd", "yyy-mm-dd"}
-	years     = rng{1980, 2100}
-	month     = rng{1, 12}
-	month
-)
-
-type FuzzDate struct {
-}
-*/
-
-type value struct {
-	v string
-	valid bool
-}
-
-func dateFuzzer() iter.Seq[value] {
-	return func(yield func(value) bool) {
-		if (!yield(value{"",true})) {
-			return
+func withAll(gs []iter.Seq[FuzzValue], values []string, index int, allValid bool, apply func([]string, bool)) {
+	if index == len(gs) {
+		apply(values, allValid)
+	} else {
+		for v := range gs[index] {
+			values[index] = v.V
+			withAll(gs, values, index+1, allValid && v.Valid, apply)
 		}
-		if (!yield(value{"2006-10-12",true})) {
-			return
-		}
-		yield(value{"20061210",false})
 	}
 }
-

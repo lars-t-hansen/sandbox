@@ -7,6 +7,8 @@ import (
 	"os"
 )
 
+// Anywhere there's "any" here there's structure we could incorporate.
+
 type Parameter struct {
 	In          string  `json:"in"`
 	Name        string  `json:"name"`
