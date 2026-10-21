@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	_ "fmt"
+	"fmt"
 	"log"
 	"os"
 )
@@ -21,11 +21,24 @@ type PSchema struct {
 	Description string `json:"description"`
 	Format      string `json:"format"`
 	Type        string `json:"type"`
+	// These constraints will be nil if not present
+	Minimum     any    `json:"minimum"`
+	Maximum     any    `json:"maximum"`
+	MinLength   any    `json:"minLength"`
+}
+
+type CSchema struct {
+	AdditionalProperties bool `json:"additionalProperties"`
+	Properties           map[string]CProperty `json:"properties"`
+	Type                 any `json:"type"` // often string but can also be []string for unions: ["array","null"]
+}
+
+type CProperty struct {
 }
 
 type OpenApi struct {
 	Components struct {
-		Schemas map[string]any `json:"schemas"`
+		Schemas map[string]CSchema `json:"schemas"`
 	} `json:"components"`
 	Info struct {
 		Title   string `json:"title"`
@@ -64,7 +77,7 @@ func getOpenApi(fn string) OpenApi {
 	return api
 }
 
-/*
+
 func main() {
 	api := getOpenApi("f.json")
 	fmt.Printf("%v\n", api.Info)
@@ -73,11 +86,11 @@ func main() {
 		if v.Get.OperationId != "" {
 			fmt.Println("  get")
 			for _, p := range v.Get.Parameters {
-				fmt.Printf("   %s %s %s %s\n", p.In, p.Name, p.Schema.Type, p.Schema.Format)
+				fmt.Printf("   %s %s %s %s %v\n", p.In, p.Name, p.Schema.Type, p.Schema.Format, p.Schema.Minimum)
 			}
 		} else {
 			fmt.Println("  post")
 		}
 	}
 }
-*/
+

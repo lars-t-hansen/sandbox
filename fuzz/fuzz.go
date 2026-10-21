@@ -52,7 +52,9 @@ func main() {
 				// TODO: This is too primitive.  Consider cases where we don't have a format but may
 				// have a type, and we may have min/max values or other constraints: minLength is
 				// obvious.  So the map is not just queryFuzzers, it's queryFormatFuzzers; for other
-				// cases there may be more.
+				// cases there may be more.  And for the format, there may be additional
+				// constraints, b/c int64 shows up as a format for the "integer" type but there can
+				// be an additional minvalue constraint.
 				if param.Schema.Format == "" {
 					continue
 				}
